@@ -1374,20 +1374,28 @@ function replaceAll(listings, cats) {
 }
 
 function applyImport(r) {
-  if (itemsUnreadable) {
-    // 읽지 못하던 값은 사용자가 바꾸기를 눌렀으니 덮습니다.
-    listingStore.unblock();
-    categoryStore.unblock();
-  }
   // 교체 전 내용과 백업 기록을 먼저 남깁니다. 여기서 실패하면 교체하지 않습니다.
+  const prevSnap = store.read('before-import');
   const { lastBackupAt, dirtySince, pending } = backupMeta;
   const snap = store.write('before-import', { listings: items, categories, at: new Date().toISOString(), backup: { lastBackupAt, dirtySince, pending } });
   if (!snap.ok) {
     backupSay(saveErrorMessage(snap.reason, snap.detail), 'fail', 'importMsg');
     return;
   }
+  if (itemsUnreadable) {
+    // 읽지 못하던 값은 사용자가 바꾸기를 눌렀으니 덮습니다.
+    listingStore.unblock();
+    categoryStore.unblock();
+  }
   const done = replaceAll(r.listings, r.categories);
   if (!done.ok) {
+    // 가져오지 못했으니 되돌리기 자료와, 읽지 못하던 값을 지키는 잠금을 전으로 돌립니다.
+    store.write('before-import', prevSnap.ok ? prevSnap.data : null);
+    if (itemsUnreadable) {
+      listingStore.load();
+      categoryStore.load();
+    }
+    renderBackupInfo();
     backupSay(saveErrorMessage(done.reason, done.detail), 'fail', 'importMsg');
     return;
   }
@@ -1438,18 +1446,23 @@ async function onImportPicked(ev) {
 function onUndoImport() {
   const snap = store.read('before-import');
   if (!snap.ok || !snap.data?.listings) return;
-  askConfirm(`가져오기 전 내용(매물 ${snap.data.listings.length}개)으로 되돌릴까요?`, '되돌리기', '취소', () => {
+  // 가져올 때 건수를 0으로 돌리므로, 지금 건수는 가져온 뒤에 바꾼 것들입니다.
+  const lost = backupMeta.pending > 0 ? `\n가져온 뒤 바꾼 ${backupMeta.pending}건은 사라지고 되살릴 수 없어요.` : '';
+  askConfirm(`가져오기 전 내용(매물 ${snap.data.listings.length}개)으로 되돌릴까요?${lost}`, '되돌리기', '취소', () => {
     const done = replaceAll(snap.data.listings, snap.data.categories || []);
     if (!done.ok) {
       backupSay(saveErrorMessage(done.reason, done.detail), 'fail', 'importMsg');
       return;
     }
-    store.write('before-import', null); // 되돌리기는 한 번만. 남겨 두면 나중에 눌렀을 때 그 뒤 변경이 사라집니다.
-    if (snap.data.backup) {
-      Object.assign(backupMeta, snap.data.backup); // 가져오기 전으로 돌아가니 백업 기록도 그때로 돌립니다.
+    store.write('before-import', null); // 되돌리기는 한 번만 됩니다.
+    const before = snap.data.backup;
+    if (before && before.lastBackupAt === backupMeta.lastBackupAt) {
+      // 가져온 뒤 백업한 적이 없으면, 백업 안 한 변경도 가져오기 전 그대로입니다.
+      backupMeta.dirtySince = before.dirtySince;
+      backupMeta.pending = before.pending;
       saveBackupMeta();
     } else {
-      markChanged(); // 백업 기록을 남기지 않던 때의 되돌리기는 바뀐 것으로 칩니다.
+      markChanged(); // 그 뒤에 만든 파일에는 되돌린 내용이 없으니 바뀐 것으로 칩니다.
     }
     backupSay('가져오기 전 내용으로 되돌렸어요.', 'ok', 'importMsg');
   });
@@ -1657,9 +1670,13 @@ loadItems();
 const loadedCats = categoryStore.load();
 if (loadedCats.ok) categories = loadedCats.items;
 // 폰 시험을 처음부터 다시 하려고 백업 기록만 한 번 지웁니다(2026-11-05 사용자 요청). 매물과 분류는 건드리지 않습니다. 다음 배포에서 뺍니다.
-if (!itemsUnreadable && !store.read('retest-1105h').data && store.write('retest-1105h', true).ok) {
+// 되돌리기 자료는 지금 내용과 같을 때만 지웁니다. 다르면 그 안에만 있는 매물이 있을 수 있어요.
+if (!itemsUnreadable && loadedCats.ok && !store.read('retest-1105h').data && store.write('retest-1105h', true).ok) {
   store.write('backup-meta', null);
-  store.write('before-import', null);
+  const kept = store.read('before-import');
+  if (kept.ok && JSON.stringify(kept.data?.listings) === JSON.stringify(items) && JSON.stringify(kept.data?.categories || []) === JSON.stringify(categories)) {
+    store.write('before-import', null);
+  }
 }
 const savedMeta = store.read('backup-meta');
 if (savedMeta.ok && savedMeta.data) backupMeta = { ...backupMeta, ...savedMeta.data };

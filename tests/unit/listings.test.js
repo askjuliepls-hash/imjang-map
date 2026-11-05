@@ -164,14 +164,14 @@ const DATED = [L('old', '2026-10-01', ''), L('none', '', ''), L('new', '2026-11-
 
 test('임장 날짜별 최신순: 최근 날짜부터, 임장일 없는 매물은 맨 끝', () => {
   const g = groupByVisitDate(DATED);
-  assert.deepEqual(g.map((x) => x.title), ['2026년 11월 5일 (목)', '2026년 10월 1일 (목)', '임장 전']);
+  assert.deepEqual(g.map((x) => x.title), ['2026년 11월 5일 (목)', '2026년 10월 1일 (목)', '임장일 없음']);
   assert.deepEqual(g[0].items.map((x) => x.id), ['new2', 'new']);
   assert.deepEqual(g[2].items.map((x) => x.id), ['none']);
 });
 
 test('임장 날짜별 오래된순: 오래된 날짜부터, 임장일 없는 매물은 그래도 맨 끝', () => {
   const g = groupByVisitDate(DATED, { order: 'old' });
-  assert.deepEqual(g.map((x) => x.title), ['2026년 10월 1일 (목)', '2026년 11월 5일 (목)', '임장 전']);
+  assert.deepEqual(g.map((x) => x.title), ['2026년 10월 1일 (목)', '2026년 11월 5일 (목)', '임장일 없음']);
 });
 
 test('날짜를 고르면 그날 매물만 나온다', () => {

@@ -131,7 +131,7 @@ export function groupByVisitDate(items, { order = 'new', date = null } = {}) {
   if (date) return map.has(date) ? [{ title: formatVisitDate(date) || date, items: map.get(date) }] : [];
   const keys = [...map.keys()].filter(Boolean).sort((a, b) => (order === 'old' ? a.localeCompare(b) : b.localeCompare(a)));
   const groups = keys.map((k) => ({ title: formatVisitDate(k) || k, items: map.get(k) }));
-  if (map.has('')) groups.push({ title: '임장 전', items: map.get('') });
+  if (map.has('')) groups.push({ title: '임장일 없음', items: map.get('') });
   return groups;
 }
 
