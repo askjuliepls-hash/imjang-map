@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1d23" media="(prefers-color-scheme: dark)">
+<meta name="app-version" content="0.1.0-1105a">
+<title>임장 지도</title>
+<link rel="stylesheet" href="./fonts/pretendard/pretendardvariable-dynamic-subset.css">
+<link rel="stylesheet" href="./css/app.css?v=0.1.0-1105a">
+<script type="importmap">
+{
+  "imports": {
+    "./js/config.js": "./js/config.js?v=0.1.0-1105a",
+    "./js/lib/device.js": "./js/lib/device.js?v=0.1.0-1105a",
+    "./js/lib/format.js": "./js/lib/format.js?v=0.1.0-1105a",
+    "./js/lib/messages.js": "./js/lib/messages.js?v=0.1.0-1105a",
+    "./vendor/firebase.js": "./vendor/firebase.js?v=fb12.19.0"
+  }
+}
+</script>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+        <path d="M12 2.5c-4.1 0-7.5 3.2-7.5 7.3 0 5.3 6.4 11.1 6.7 11.4.4.4 1.1.4 1.5 0 .3-.3 6.8-6.1 6.8-11.4 0-4.1-3.4-7.3-7.5-7.3z" fill="currentColor"/>
+        <path d="M10.6 6.2h2.8v2.6H16v2.8h-2.6v2.6h-2.8v-2.6H8V8.8h2.6z" fill="var(--surface)"/>
+      </svg>
+      <span>임장 지도</span>
+    </div>
+    <div class="who" id="who">로그인 전</div>
+  </header>
+
+  <main class="stage">
+    <div id="map" role="region" aria-label="지도"></div>
+    <div id="mapMsg" class="map-msg" hidden></div>
+    <form id="searchForm" class="search" role="search">
+      <svg class="search-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5 20 20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="q" type="search" placeholder="장소나 주소 검색" enterkeyhint="search" autocomplete="off" aria-label="장소나 주소 검색">
+      <button type="submit" id="searchBtn">검색</button>
+    </form>
+    <ul id="results" class="results" hidden></ul>
+    <button id="locate" class="fab" type="button">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="3.5" fill="currentColor"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>내 위치</span>
+    </button>
+  </main>
+
+  <section class="sheet" id="sheet" data-collapsed="false">
+    <button class="sheet-head" id="sheetToggle" type="button" aria-expanded="true" aria-controls="sheetBody">
+      <span class="grabber" aria-hidden="true"></span>
+      <span class="sheet-row">
+        <span class="sheet-title">연결 점검</span>
+        <span class="score" id="score" data-done="false">6개 중 0개 통과</span>
+      </span>
+    </button>
+    <div class="sheet-body" id="sheetBody">
+      <p class="lead">6개가 모두 통과하면 연결 확인이 끝나요.</p>
+
+      <form id="loginForm" class="login" autocomplete="on">
+        <div class="field">
+          <label for="email">이메일</label>
+          <input id="email" name="email" type="email" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="password">비밀번호</label>
+          <input id="password" name="password" type="password" autocomplete="current-password">
+        </div>
+        <p class="form-msg" id="loginMsg" role="alert" hidden></p>
+        <button class="btn primary" id="loginBtn" type="submit">로그인하기</button>
+      </form>
+
+      <div id="account" class="account" hidden>
+        <p class="last-save" id="lastSave"></p>
+        <p class="form-msg" id="saveMsg" role="status" hidden></p>
+        <button class="btn primary" id="saveBtn" type="button">테스트 저장하기</button>
+      </div>
+
+      <ol class="checks">
+        <li class="check" data-check="map" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">지도</div><p class="msg">지도를 불러오는 중이에요.</p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="search" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">장소 검색</div><p class="msg">검색창에 아무 장소나 검색해 보세요.</p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="gps" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">내 위치</div><p class="msg">'내 위치' 버튼을 눌러보세요.</p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="login" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">로그인</div><p class="msg">이메일과 비밀번호로 로그인해 주세요.</p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="persist" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">저장 후 유지</div><p class="msg">로그인 후 '테스트 저장하기'를 누르고 새로고침해 보세요.</p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="sync" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">다른 기기에서 보기</div><p class="msg">PC에서 같은 주소로 로그인해 보세요.</p></div><span class="state sr-only">대기</span></li>
+      </ol>
+
+      <div class="foot">
+        <span>버전 <span id="ver"></span> · 화면이 그대로면 새로고침해 주세요</span>
+        <button class="text-btn" id="logoutBtn" type="button" hidden>로그아웃</button>
+      </div>
+    </div>
+  </section>
+</div>
+<script type="module" src="./js/app.js?v=0.1.0-1105a"></script>
+</body>
+</html>

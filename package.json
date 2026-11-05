@@ -1,0 +1,17 @@
+{
+  "name": "imjang-map",
+  "private": true,
+  "type": "module",
+  "description": "약국 임장 기록 지도앱",
+  "scripts": {
+    "test": "node --test \"tests/unit/*.test.js\"",
+    "build:vendor": "node scripts/build-vendor.mjs",
+    "preview": "node tests/e2e/preview.mjs",
+    "release": "node scripts/release.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "firebase": "12.19.0",
+    "puppeteer-core": "25.15.0"
+  }
+}
