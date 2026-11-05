@@ -8,14 +8,14 @@
 
 - 앱 주소: https://askjuliepls-hash.github.io/imjang-map/ — GitHub Pages가 main 브랜치 루트를 그대로 배포합니다. push 후 1~2분 걸립니다.
 - 지도: 카카오맵 JavaScript SDK (`dapi.kakao.com/v2/maps/sdk.js`, `services` 라이브러리로 장소 검색)
-- 데이터: Firebase Firestore(asia-northeast3, 서울), 이메일+비밀번호 로그인. 경로는 `users/{uid}/...`이고 보안 규칙은 본인만 읽고 쓰기입니다.
-- 빌드 도구는 없습니다. 순수 HTML·CSS·JS(ES 모듈)이고, Firebase SDK 12.19.0은 `vendor/firebase.js` 한 파일로 묶어 두었습니다.
+- 데이터: **각자의 폰 브라우저에만 저장**(로그인 없음)하고, 백업은 파일 내보내기·가져오기로 합니다. Firebase는 2026-11-05에 보류했습니다(아래 '지금 어디까지').
+- 빌드 도구는 없습니다. 순수 HTML·CSS·JS(ES 모듈)입니다. `vendor/firebase.js`(Firebase SDK 묶음)는 보류 결정으로 제거할 예정입니다.
 
 ## 지금 어디까지 (2026-11-05)
 
-- MVP 0단계(준비) 진행 중입니다. GitHub 저장소와 Pages는 끝났고, 카카오·Firebase 콘솔 설정과 `js/config.js` 값 넣기가 남았습니다.
-- 1단계 '연결 점검 화면'(index.html)은 배포돼 있습니다. 설정값이 비어 있어 '지도 준비 전' 상태로 보이는 게 정상입니다.
-- 다음 순서: 키 2개를 `js/config.js`에 넣고 배포 → 사용자가 폰에서 연결 점검 6개 통과 확인·승인 → 2단계(매물 저장) 시작.
+- MVP 0단계(준비) 끝. GitHub 저장소·Pages, 카카오 앱 '약국 임장노트'(ID 1638441: JavaScript SDK 도메인 등록, 카카오맵 ON)까지 완료했고, 카카오 JavaScript 키는 `js/config.js`에 들어 있습니다. 배포 버전 0.1.1-1105b.
+- **결정 변경:** Firebase(클라우드 저장·로그인)를 보류하고 '폰에만 저장 + 백업'으로 갑니다. 조건: ① 홈 화면에 추가해서 쓰기(아이폰 사파리는 오래 안 쓴 사이트 데이터를 지울 수 있음) ② 백업 파일 내보내기·가져오기 + 오래 백업 안 하면 알림 ③ 항상 같은 곳(홈 화면 아이콘)에서 열기(카톡 안 브라우저 등은 저장 공간이 따로라 빈 화면처럼 보임).
+- **다음 작업(VS Code에서):** 1단계 연결 점검 화면을 새 결정에 맞게 고치기. Firebase 관련 코드(`vendor/firebase.js`, 로그인 칸, 로그인·서버 저장·다른 기기 점검, `scripts/build-vendor.mjs`)를 빼고, 점검을 '지도 / 장소 검색 / 내 위치 / 이 기기에 저장 후 새로고침해도 유지 / 백업 파일 내보내기 / 백업 파일 가져오기 / 홈 화면 앱으로 열림'으로 바꿉니다. 자동 테스트·대행 점검도 함께 고치고, 사용자 폰 확인을 받은 뒤 2단계(매물 저장)로 갑니다.
 - 최신 진행 상황은 `docs/dev-notes.md`의 '현재 상태와 다음 할 일'이 기준입니다. 일을 마치면 그곳을 갱신합니다.
 
 ## 사용자와 일하는 방식 (사용자가 요청한 원칙)
@@ -37,8 +37,8 @@
 | `css/app.css` | 디자인 토큰(색·글꼴)과 화면 스타일 |
 | `js/app.js` | 앱 동작 (지도, 검색, 내 위치, 로그인, 저장) |
 | `js/lib/` | 화면과 무관한 순수 로직. 자동 테스트 대상 |
-| `js/config.js` | 카카오 JavaScript 키, firebaseConfig (아직 비어 있음) |
-| `vendor/firebase.js` | Firebase SDK 묶음 (`npm run build:vendor`로만 다시 만듦) |
+| `js/config.js` | 카카오 JavaScript 키 (firebaseConfig는 보류로 비어 있음, 제거 예정) |
+| `vendor/firebase.js` | Firebase SDK 묶음 — 보류 결정으로 제거 예정 |
 | `fonts/pretendard/` | Pretendard 글꼴(SIL OFL 1.1), 쓰는 글자 조각만 내려받는 방식 |
 | `tests/unit/` | 순수 로직 자동 테스트 (`node --test`) |
 | `tests/e2e/` | 대행 점검: 가짜 지도·가짜 저장소로 폰 크기 화면을 조작하고 캡처 |
@@ -61,11 +61,13 @@ npm run build:vendor
 
 ## 지켜야 할 것
 
-- 저장소는 공개입니다. `js/config.js`의 카카오 JavaScript 키와 firebaseConfig는 공개돼도 되는 값입니다. 비밀번호, 카카오 REST API·Admin 키, Firebase 서비스 계정 키, 개인 정보(관심 매물명·주소·연락처)는 저장소에 넣지 않습니다.
+- 저장소는 공개입니다. `js/config.js`의 카카오 JavaScript 키는 등록 도메인에서만 작동해서 공개돼도 되는 값입니다. 카카오 REST API 키·Admin 키·네이티브 앱 키, 비밀번호, 개인 정보(관심 매물명·주소·연락처)는 저장소에 넣지 않습니다.
+- 카카오맵 무료 사용량은 이 카카오 앱(ID 1638441)에 고정돼 있습니다. 다른 서비스에서 카카오 지도가 필요하면 새 앱을 만들지 말고 이 앱 키에 도메인을 추가합니다(최대 10개).
 - 카카오 콘솔(2025-12 개편): 도메인은 [앱] > [플랫폼 키] > [JavaScript 키] > [JavaScript SDK 도메인]에 등록합니다. 등록 값은 `https://askjuliepls-hash.github.io`입니다. 카카오 지도 로고를 가리는 배치는 하지 않습니다.
 - 아이폰 사파리: 입력 글씨 16px 이상(자동 확대 방지), 결과 안내는 누른 버튼 근처에, 한국어 줄바꿈은 `word-break: keep-all`.
 - 디자인 기준(토스·카카오T 참고): 주요 버튼 하나를 크게, 선·그림자 대신 여백과 연회색 면, 글씨 3단계(굵은 제목/본문/회색 보조), 강조색은 밝은 소프트 블루(#468ade) 하나, 상태 색은 순하게. 색은 `css/app.css`의 토큰으로만 씁니다.
-- 로그인은 이메일+비밀번호입니다(구글 로그인은 아이폰 사파리 문제로 제외). 친구 계정은 앱 주인이 Firebase 콘솔에서 직접 추가하고, 앱에는 가입 화면을 두지 않습니다.
+- 저장은 폰 브라우저(우선 localStorage, 사진 등 큰 데이터가 생기면 IndexedDB)에 합니다. 저장 코드는 `js/lib/`의 작은 저장소 모듈 하나로 감싸서 나중에 IndexedDB나 클라우드로 바꾸기 쉽게 하고, 읽기·쓰기는 try/catch로 보호합니다. 데이터와 백업 파일에는 형식 버전(schemaVersion)을 넣습니다.
+- 백업 파일은 JSON입니다. 아이폰에서는 공유 시트(Web Share API)나 다운로드로 '파일' 앱·카톡에 저장하고, 가져오기는 파일 선택으로 합니다. 파일 선택창·공유 시트는 대행 점검으로 확인할 수 없으니 폰 확인 항목에 넣습니다.
 
 ## MVP 로드맵
 
