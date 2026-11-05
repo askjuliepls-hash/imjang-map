@@ -478,6 +478,7 @@ button.set-row { width: 100%; padding: 0; border: 0; background: none; color: va
 .place-info { display: grid; gap: 4px; }
 .place-info strong { font-size: 16px; font-weight: 700; }
 .place-info span { font-size: 14px; color: var(--ink-3); }
+#pinMeta { font-weight: 600; color: var(--band-ink); }
 .pick-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 
 /* 내 매물 목록 */
