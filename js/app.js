@@ -205,6 +205,7 @@ function onSearch(ev) {
   ev.preventDefault();
   const q = $('q').value.trim();
   if (!q || !kakao) return;
+  if (cardPlace) hidePlaceCard();
   $('q').blur(); // 아이폰 키보드를 내려 결과가 보이게
   searchPlaces(q, (r) => {
     const ul = $('results');
@@ -232,12 +233,42 @@ function onSearch(ev) {
           searchMarker = new kakao.maps.CustomOverlay({ position: pos, content: makeSearchDot(), map });
         }
         ul.hidden = true;
+        showPlaceCard(p);
       }));
     }
     ul.append(placeHint());
     ul.scrollTop = 0;
     ul.hidden = false;
   });
+}
+
+// 약국을 먼저 찾고, 고른 약국으로 바로 매물을 추가합니다.
+let cardPlace = null;
+
+function showPlaceCard(p) {
+  cardPlace = p;
+  $('placeName').textContent = p.place_name;
+  $('placeAddress').textContent = p.road_address_name || p.address_name || '';
+  $('placeCard').hidden = false;
+  $('addBtn').hidden = true;
+}
+
+function hidePlaceCard() {
+  cardPlace = null;
+  $('placeCard').hidden = true;
+  if (!picking) $('addBtn').hidden = false;
+}
+
+function addFromPlace() {
+  const p = cardPlace;
+  if (!p) return;
+  hidePlaceCard();
+  searchMarker?.setMap(null); // 저장하면 핀이 그 자리에 생깁니다.
+  openForm();
+  $('f-name').value = p.place_name;
+  setDraftLocation(Number(p.y), Number(p.x), '');
+  applyAddress(p.road_address_name, p.address_name);
+  formDirty = false; // 채워 준 내용이라 그냥 나가도 묻지 않습니다.
 }
 
 function makeSearchDot() {
@@ -624,6 +655,7 @@ function onLocMap() {
   if (!map) return;
   picking = true;
   $('toast').hidden = true;
+  hidePlaceCard();
   pickPos = draftLocation ? { lat: draftLocation.lat, lng: draftLocation.lng } : null;
   pickAddress = null;
   $('pickText').textContent = '지도에서 약국 위치를 눌러 주세요.';
@@ -667,7 +699,10 @@ function endPick(ok) {
 
 function onMapClick(mouseEvent) {
   $('results').hidden = true;
-  if (!picking) return;
+  if (!picking) {
+    if (cardPlace) hidePlaceCard();
+    return;
+  }
   const ll = mouseEvent.latLng;
   const here = { lat: ll.getLat(), lng: ll.getLng() };
   pickPos = here;
@@ -778,6 +813,8 @@ $('searchForm').addEventListener('submit', onSearch);
 $('locate').addEventListener('click', onLocate);
 $('sheetToggle').addEventListener('click', onToggleSheet);
 $('addBtn').addEventListener('click', () => openForm());
+$('placeAdd').addEventListener('click', addFromPlace);
+$('placeClose').addEventListener('click', hidePlaceCard);
 $('formClose').addEventListener('click', onCancelForm);
 $('modalNo').addEventListener('click', closeModal);
 $('modalYes').addEventListener('click', () => {

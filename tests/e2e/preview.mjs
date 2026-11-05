@@ -315,6 +315,11 @@ try {
     await wait(60);
     expect(s, '지도를 누르면 표시되고 확인 가능', await page.$eval('#pickOk', (el) => !el.disabled) && !!(await page.$('#pickDot')));
     expect(s, '지도를 누르면 그 주소가 바로 보임', (await text(page, '#pickText')).includes('가짜대로 10'));
+    const pickClear = await page.evaluate(() => {
+      const stage = document.querySelector('.stage').getBoundingClientRect();
+      return document.getElementById('pickBar').getBoundingClientRect().bottom <= stage.bottom - 40;
+    });
+    expect(s, '위치 고르기 안내가 카카오 로고 자리를 가리지 않음', pickClear);
     await shot(page, 'c-pick');
     await page.click('#pickOk');
     expect(s, '확인하면 입력하던 양식으로 돌아옴', await visible(page, '#formScreen') && (await page.$eval('#f-name', (el) => el.value)).includes('지도에서'));
@@ -386,6 +391,53 @@ try {
     await wait(150);
     expect(s, '주소를 못 찾아도 위치는 찍히고 직접 적으라고 안내', (await text(second.page, '#locState')).includes('직접 적어'));
     await second.context.close();
+  });
+
+  // G2. 약국을 먼저 찾고 고른 약국으로 매물 추가
+  await scenario('G2 찾아서 추가', async (s) => {
+    const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
+    await page.goto(BASE, { waitUntil: 'load' });
+    await appReady(page);
+    await page.waitForSelector('#locSearchBtn:not([disabled])', { timeout: 3000 });
+    await page.type('#q', '테스트 장소');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('#results:not([hidden]) button', { timeout: 3000 });
+    await page.click('#results button');
+    expect(s, '결과를 고르면 그 약국과 추가 버튼이 보임', await visible(page, '#placeCard') && await inView(page, '#placeAdd') && (await text(page, '#placeName')).includes('테스트 장소'));
+    const logoClear = await page.evaluate(() => {
+      const stage = document.querySelector('.stage').getBoundingClientRect();
+      const r = document.getElementById('placeCard').getBoundingClientRect();
+      return r.bottom <= stage.bottom - 40;
+    });
+    expect(s, '안내 카드가 카카오 로고 자리를 가리지 않음', logoClear);
+    await shot(page, 'g2-place-card');
+    await page.click('#placeClose');
+    expect(s, '닫으면 카드가 사라지고 매물 추가 버튼이 돌아옴', !(await visible(page, '#placeCard')) && await visible(page, '#addBtn'));
+    await page.$eval('#q', (el) => { el.value = ''; });
+    await page.type('#q', '테스트 장소');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('#results:not([hidden]) button', { timeout: 3000 });
+    await page.click('#results button');
+    const picked = await text(page, '#placeName');
+    await page.click('#placeAdd');
+    expect(s, '양식에 약국 이름과 주소가 채워짐', await visible(page, '#formScreen') && (await page.$eval('#f-name', (el) => el.value)) === picked && (await page.$eval('#f-address', (el) => el.value)).length > 0);
+    await shot(page, 'g2-form-filled');
+    await page.click('#formClose');
+    expect(s, '채워 준 내용만 있으면 그냥 나가도 묻지 않음', !(await visible(page, '#modal')) && !(await visible(page, '#formScreen')));
+    await page.click('#addBtn');
+    expect(s, '일반 매물 추가는 빈 양식', (await page.$eval('#f-name', (el) => el.value)) === '' && await visible(page, '#locQ'));
+    await page.click('#formClose');
+    await page.type('#q', ' ');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('#results:not([hidden]) button', { timeout: 3000 });
+    await page.click('#results button');
+    await page.click('#placeAdd');
+    await page.click('#saveListing');
+    await wait(80);
+    const list = await stored(page);
+    expect(s, '저장하면 위치까지 들어가고 핀이 생김', list.length === 1 && Number.isFinite(list[0].lat) && (await page.$$('.mock-marker')).length === 1);
+    expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
+    await context.close();
   });
 
   // D. 저장 실패와 읽기 실패: 데이터를 잃으면 안 됩니다.
