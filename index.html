@@ -30,11 +30,13 @@
       </svg>
       <span>약국 임장노트</span>
     </div>
+    <button class="text-btn" id="topReload" type="button">다시 불러오기</button>
   </header>
 
   <main class="stage">
     <div id="map" role="region" aria-label="지도"></div>
     <div id="mapMsg" class="map-msg" hidden></div>
+    <p id="reloadMsg" class="form-msg top-msg" role="alert" hidden></p>
     <form id="searchForm" class="search" role="search">
       <svg class="search-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5 20 20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <input id="q" type="search" placeholder="장소나 주소 검색" enterkeyhint="search" autocomplete="off" aria-label="장소나 주소 검색">
@@ -64,11 +66,59 @@
       </ol>
 
       <div class="foot">
-        <span>버전 <span id="ver"></span> · 화면이 그대로면 새로고침해 주세요</span>
+        <span>버전 <span id="ver"></span></span>
       </div>
     </div>
   </section>
 </div>
+<script>
+// 홈 화면 앱에는 새로고침 버튼이 없어서 직접 둡니다.
+// 모듈(app.js)이 실패해도 이 버튼은 살아 있어야 하므로 일반 script로 연결합니다.
+(function () {
+  var btn = document.getElementById('topReload');
+  var msg = document.getElementById('reloadMsg');
+  var watchdogShown = false;
+  function say(text) {
+    msg.dataset.tone = 'fail';
+    msg.textContent = text;
+    msg.hidden = false;
+  }
+  async function reloadApp() {
+    btn.disabled = true;
+    btn.textContent = '불러오는 중…';
+    msg.hidden = true;
+    var ok = false;
+    try {
+      var c = new AbortController();
+      var t = setTimeout(function () { c.abort(); }, 8000);
+      var r = await fetch(location.pathname, { cache: 'reload', signal: c.signal });
+      clearTimeout(t);
+      ok = r.ok;
+    } catch (e) { /* 아래에서 안내합니다 */ }
+    if (!ok) {
+      // 신호 없이 reload하면 앱 화면 대신 오류 화면만 남으니, 응답을 받았을 때만 다시 읽습니다.
+      btn.disabled = false;
+      btn.textContent = '다시 불러오기';
+      say('인터넷이 안 잡혀요. 연결된 뒤 다시 눌러 주세요.');
+      return;
+    }
+    if (window.__beforeReload) window.__beforeReload();
+    location.reload();
+  }
+  btn.addEventListener('click', reloadApp);
+  // 시작 감시: 모듈 하나만 실패해도 app.js 전체가 실행되지 않습니다.
+  var watch = setTimeout(function () {
+    if (window.__appStarted) return;
+    document.getElementById('ver').textContent = document.querySelector('meta[name="app-version"]').content;
+    say("앱을 불러오지 못했어요. 인터넷을 확인하고 위쪽 '다시 불러오기'를 눌러 주세요.");
+    watchdogShown = true;
+  }, 8000);
+  window.__onAppStarted = function () {
+    clearTimeout(watch);
+    if (watchdogShown) msg.hidden = true;
+  };
+})();
+</script>
 <script type="module" src="./js/app.js?v=0.1.1-1105b"></script>
 </body>
 </html>

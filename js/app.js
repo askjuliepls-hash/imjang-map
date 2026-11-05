@@ -101,13 +101,16 @@ async function initMap() {
   kakao.maps.event.addListener(map, 'tilesloaded', () => {
     if (drawn) return;
     drawn = true;
+    $('mapMsg').hidden = true; // 시간 초과 뒤에 늦게 떠도 안내를 걷습니다.
     setCheck('map', 'ok', '카카오 지도가 떴어요.');
   });
   kakao.maps.event.addListener(map, 'click', () => {
     $('results').hidden = true;
   });
   setTimeout(() => {
-    if (!drawn) setCheck('map', 'fail', kakaoLoadMessage('tiles-timeout'));
+    if (drawn) return;
+    setCheck('map', 'fail', kakaoLoadMessage('tiles-timeout'));
+    showMapMessage('지도 그림이 안 떴어요', '아래 연결 점검의 안내를 확인해 주세요.');
   }, WAIT_MS);
 }
 
@@ -214,3 +217,6 @@ $('sheetToggle').addEventListener('click', onToggleSheet);
 window.addEventListener('resize', () => map?.relayout());
 
 initMap();
+
+window.__appStarted = true;
+window.__onAppStarted?.();

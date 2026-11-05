@@ -50,7 +50,8 @@ const mocks = {
   configEmpty: await readFile(join(ROOT, 'tests/e2e/mocks/config-empty.js'), 'utf8'),
 };
 
-// mode: kakao 'mock' | '503' | 'block', config 'mock' | 'empty' | 'real'
+// mode: kakao 'mock' | '503' | 'block', config 'mock' | 'empty' | 'real' | 'broken',
+//       abort 요청 경로에 대한 정규식(모듈 실패 흉내), init 페이지마다 먼저 실행할 함수
 async function openPage(browser, mode, scenario) {
   const context = await browser.createBrowserContext();
   await context.overridePermissions(ORIGIN, ['geolocation']);
@@ -58,6 +59,7 @@ async function openPage(browser, mode, scenario) {
   await page.setUserAgent(IPHONE_UA);
   await page.setViewport(PHONE);
   await page.setGeolocation({ latitude: 37.5668, longitude: 126.9786, accuracy: 24 });
+  if (mode.init) await page.evaluateOnNewDocument(mode.init);
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   const requests = [];
@@ -65,6 +67,7 @@ async function openPage(browser, mode, scenario) {
   page.on('request', (req) => {
     const u = new URL(req.url());
     requests.push(u.pathname + u.search);
+    if (mode.abort && mode.abort.test(u.pathname)) return req.abort();
     const js = (body) => req.respond({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
     if (u.hostname === 'dapi.kakao.com') {
       if (mode.kakao === 'mock') return js(mocks.kakao);
@@ -73,6 +76,7 @@ async function openPage(browser, mode, scenario) {
     }
     if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'mock') return js(mocks.config);
     if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'empty') return js(mocks.configEmpty);
+    if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'broken') return js('export const NOT_THE_KEY = 1;');
     if (u.origin !== ORIGIN) return req.abort();
     return req.continue();
   });
@@ -88,7 +92,7 @@ async function layout(page) {
     const vw = window.innerWidth;
     const visibleInputs = [...document.querySelectorAll('input')].filter((i) => i.offsetParent !== null);
     const small = visibleInputs.filter((i) => parseFloat(getComputedStyle(i).fontSize) < 16).map((i) => i.id);
-    const clipped = [...document.querySelectorAll('.check .name, .check .msg, .btn, .score, .results strong, .results span, .fab')]
+    const clipped = [...document.querySelectorAll('.check .name, .check .msg, .btn, .score, .results strong, .results span, .fab, .form-msg')]
       .filter((el) => el.offsetParent !== null && el.scrollWidth > el.clientWidth + 1)
       .map((el) => `${el.className}:${el.textContent.trim().slice(0, 16)}`);
     const de = document.documentElement;
@@ -194,6 +198,73 @@ try {
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await shot(page, 'c-map-rejected');
     await context.close();
+  });
+
+  // H. 예외: 지도 그림 시간 초과, 신호 없을 때 다시 불러오기, 모듈 실패
+  await scenario('H 예외', async (s) => {
+    // 15초·8초 대기를 줄여서 돌립니다. 코드의 분기만 확인하는 것입니다.
+    const fastTimers = () => {
+      const st = window.setTimeout;
+      window.setTimeout = (f, d, ...a) => st(f, d === 15000 || d === 8000 ? 300 : d, ...a);
+    };
+    {
+      const { context, page, errors } = await openPage(browser, {
+        kakao: 'mock', config: 'mock',
+        init: () => {
+          const st = window.setTimeout;
+          window.setTimeout = (f, d, ...a) => st(f, d === 15000 ? 300 : d, ...a);
+          window.__mockTilesDelay = 900;
+        },
+      }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      expect(s, '지도 그림 시간 초과면 실패 표시', await waitCheck(page, 'map', 'fail'));
+      expect(s, '지도 그림 시간 초과면 지도 자리에 안내', await page.$eval('#mapMsg', (el) => !el.hidden));
+      expect(s, '늦게 뜨면 통과로 바뀜', await waitCheck(page, 'map', 'ok'));
+      expect(s, '늦게 뜨면 지도 자리 안내가 사라짐', await page.$eval('#mapMsg', (el) => el.hidden));
+      expect(s, '스크립트 오류 없음(시간 초과)', errors.length === 0, errors.join(' | '));
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock' }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await waitCheck(page, 'map', 'ok');
+      // 재발 방지(2026-11-05): 버튼이 스크롤 아래에 숨거나 결과 안내가 화면 밖에 뜨던 문제
+      expect(s, "'다시 불러오기' 버튼이 스크롤 없이 보임", await inView(page, '#topReload'));
+      await page.setOfflineMode(true);
+      await page.click('#topReload');
+      const said = await page.waitForFunction(() => {
+        const m = document.getElementById('reloadMsg');
+        return m && !m.hidden && m.textContent.includes('인터넷');
+      }, { timeout: 12000 }).then(() => true, () => false);
+      expect(s, '신호 없으면 다시 불러오기 근처에 안내가 보임', said && await inView(page, '#reloadMsg'));
+      expect(s, '신호 없어도 앱 화면이 남음', await page.$eval('.brand', (el) => !!el) && page.url() === BASE);
+      expect(s, '신호 없을 때 버튼이 다시 눌림', await page.$eval('#topReload', (el) => !el.disabled && el.textContent === '다시 불러오기'));
+      await shot(page, 'h-offline-reload');
+      await page.setOfflineMode(false);
+      await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.click('#topReload')]);
+      expect(s, '신호가 돌아오면 다시 불러오기가 됨', await waitCheck(page, 'map', 'ok'));
+      expect(s, '스크립트 오류 없음(다시 불러오기)', errors.length === 0, errors.join(' | '));
+      await context.close();
+    }
+    for (const [what, mode] of [
+      ['모듈 하나가 안 받아질 때', { abort: /\/js\/lib\/messages\.js$/ }],
+      ['옛 파일과 새 파일이 섞일 때', { config: 'broken' }],
+    ]) {
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', ...mode, init: fastTimers }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      const shown = await page.waitForFunction(() => {
+        const m = document.getElementById('reloadMsg');
+        return m && !m.hidden && m.textContent.includes('불러오지 못했어요');
+      }, { timeout: 5000 }).then(() => true, () => false);
+      expect(s, `${what}: 안내가 보임`, shown && await inView(page, '#reloadMsg'));
+      expect(s, `${what}: 버전이 보임`, (await page.$eval('#ver', (el) => el.textContent)).length > 0);
+      const moved = await Promise.all([
+        page.waitForNavigation({ waitUntil: 'load', timeout: 5000 }).then(() => true, () => false),
+        page.click('#topReload'),
+      ]);
+      expect(s, `${what}: 다시 불러오기 버튼이 살아 있음`, moved[0]);
+      await context.close();
+    }
   });
 } finally {
   await browser.close();

@@ -31,7 +31,7 @@
     el.appendChild(tag);
     var self = this;
     el.addEventListener('click', function () { event.trigger(self, 'click'); });
-    setTimeout(function () { event.trigger(self, 'tilesloaded'); }, 60);
+    setTimeout(function () { event.trigger(self, 'tilesloaded'); }, window.__mockTilesDelay || 60);
   }
   Map.prototype.setCenter = function (c) { this.center = c; this._redraw(); };
   Map.prototype.panTo = function (c) { this.center = c; this._redraw(); };
