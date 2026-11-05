@@ -100,13 +100,15 @@ test('빈 파일·크기 초과·읽기 실패', async () => {
   assert.deepEqual(await readBackupFile(broken), { ok: false, reason: 'read-failed', detail: 'NotFoundError' });
 });
 
-test('바뀐 내용이 7일 넘게 백업 안 되면 알린다', () => {
+test('마지막 백업에서 7일이 지났고 바꾼 내용이 있을 때만 알린다', () => {
   const day = (n) => new Date(2026, 10, n).toISOString();
-  const now = new Date(2026, 10, 10);
-  assert.equal(needsReminder({ count: 3, dirtySince: day(3), now }), true);
-  assert.equal(needsReminder({ count: 3, dirtySince: day(5), now }), false);
-  assert.equal(needsReminder({ count: 3, dirtySince: null, now }), false, '백업 뒤 바뀐 게 없음');
-  assert.equal(needsReminder({ count: 0, dirtySince: day(1), now }), false, '매물이 없음');
+  const now = new Date(2026, 10, 20);
+  assert.equal(needsReminder({ count: 3, lastBackupAt: day(10), dirtySince: day(19), now }), true, '10일 전 백업, 어제 바꿈');
+  assert.equal(needsReminder({ count: 3, lastBackupAt: day(10), dirtySince: null, now }), false, '10일 전 백업, 바꾼 내용 없음');
+  assert.equal(needsReminder({ count: 3, lastBackupAt: day(18), dirtySince: day(19), now }), false, '2일 전 백업');
+  assert.equal(needsReminder({ count: 3, lastBackupAt: null, dirtySince: day(12), now }), true, '백업한 적 없고 처음 바꾼 지 8일');
+  assert.equal(needsReminder({ count: 3, lastBackupAt: null, dirtySince: day(15), now }), false, '백업한 적 없고 처음 바꾼 지 5일');
+  assert.equal(needsReminder({ count: 0, lastBackupAt: null, dirtySince: day(1), now }), false, '매물이 없음');
 });
 
 test('매물 1000개 백업도 가져오기 한도 안에 든다', () => {

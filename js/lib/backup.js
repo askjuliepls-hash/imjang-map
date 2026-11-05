@@ -111,10 +111,11 @@ export async function readBackupFile(file) {
   return parseBackup(buffer);
 }
 
-// 바뀐 내용이 백업 안 된 채 며칠이 지나면 알립니다.
-export function needsReminder({ count, dirtySince, now, days = REMIND_DAYS }) {
+// 마지막 백업에서 며칠이 지났고 그 뒤 바꾼 내용이 있을 때만 알립니다.
+// 백업한 적이 없으면 처음 바꾼 때부터 셉니다.
+export function needsReminder({ count, dirtySince, lastBackupAt, now, days = REMIND_DAYS }) {
   if (!count || !dirtySince) return false;
-  const since = new Date(dirtySince).getTime();
+  const since = new Date(lastBackupAt || dirtySince).getTime();
   return Number.isFinite(since) && now.getTime() - since >= days * DAY;
 }
 

@@ -1450,8 +1450,8 @@ function onUndoImport() {
 
 function checkReminder() {
   if (PLACE !== 'app') return;
-  if (!needsReminder({ count: items.length, dirtySince: backupMeta.dirtySince, now: new Date() })) return;
-  $('nudgeText').textContent = `바꾼 내용을 ${REMIND_DAYS}일 넘게 백업하지 않았어요. 폰을 잃거나 바꾸면 되살릴 수 없어요.`;
+  if (!needsReminder({ count: items.length, dirtySince: backupMeta.dirtySince, lastBackupAt: backupMeta.lastBackupAt, now: new Date() })) return;
+  $('nudgeText').textContent = `${REMIND_DAYS}일 넘게 백업하지 않았고, 바뀐 내용이 ${backupMeta.pending}건 있어요. 폰을 잃거나 바꾸면 되살릴 수 없어요.`;
   $('backupNudge').hidden = false;
 }
 

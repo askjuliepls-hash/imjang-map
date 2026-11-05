@@ -417,6 +417,7 @@ button.set-row { width: 100%; padding: 0; border: 0; background: none; color: va
   font-size: 16px;
 }
 .modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 20px; }
+.modal-actions .fill-btn { order: -1; } /* 권하는 버튼은 왼쪽, 닫기는 오른쪽 */
 .place-hint { padding: 10px 12px; font-size: 13px; color: var(--ink-3); }
 .cat-dot { display: inline-block; flex: none; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; vertical-align: 0; }
 .chip {

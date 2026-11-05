@@ -1133,6 +1133,7 @@ try {
       expect(s, '첫 저장 뒤 저장했다는 말과 폰에만 저장된다는 설명을 창으로 알림', await visible(page, '#modal') && (await saveWindow()).startsWith('저장했어요') && (await saveWindow()).includes('이 폰에만') && await inView(page, '#modalYes'));
       expect(s, '저장 안내를 토스트로 겹쳐 띄우지 않음', !(await visible(page, '#toast')));
       await shot(page, 'w-intro');
+      expect(s, '지금 백업하기가 왼쪽, 닫기가 오른쪽', await page.evaluate(() => document.getElementById('modalYes').getBoundingClientRect().right <= document.getElementById('modalNo').getBoundingClientRect().left));
       const dot = () => page.$eval('#tabbar [data-tab="settings"]', (el) => el.dataset.alert);
       await page.click('#modalNo');
       expect(s, '닫기를 누르면 창이 닫히고 설정 탭에 점이 찍힘', !(await visible(page, '#modal')) && (await dot()) === 'true');
@@ -1186,12 +1187,21 @@ try {
       await page.goto(BASE, { waitUntil: 'load' });
       await page.evaluate(() => {
         localStorage.setItem('imjang-map:listings', JSON.stringify({ schemaVersion: 1, data: { items: [{ id: 'a', name: '약국', lat: null, lng: null, createdAt: '2026-01-01T00:00:00.000Z' }] } }));
-        const old = new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString();
-        localStorage.setItem('imjang-map:backup-meta', JSON.stringify({ schemaVersion: 1, data: { lastBackupAt: null, dirtySince: old } }));
+        const daysAgo = (n) => new Date(Date.now() - n * 24 * 3600 * 1000).toISOString();
+        localStorage.setItem('imjang-map:backup-meta', JSON.stringify({ schemaVersion: 1, data: { lastBackupAt: daysAgo(10), dirtySince: null, pending: 0, introSeen: true } }));
       });
       await page.reload({ waitUntil: 'load' });
       await appReady(page);
-      expect(s, '7일 넘게 백업 안 하면 알림', await visible(page, '#backupNudge') && await inView(page, '#nudgeGo'));
+      expect(s, '7일이 지나도 바꾼 내용이 없으면 알림 없음', !(await visible(page, '#backupNudge')));
+      await page.evaluate(() => {
+        const daysAgo = (n) => new Date(Date.now() - n * 24 * 3600 * 1000).toISOString();
+        localStorage.setItem('imjang-map:backup-meta', JSON.stringify({ schemaVersion: 1, data: { lastBackupAt: daysAgo(10), dirtySince: daysAgo(1), pending: 2, introSeen: true } }));
+      });
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      expect(s, '7일 넘게 백업 안 했고 바꾼 내용이 있으면 건수와 함께 알림', await visible(page, '#backupNudge') && (await text(page, '#nudgeText')).includes('2건') && await inView(page, '#nudgeGo'));
+      const leftOf = (a, b) => page.evaluate((x, y) => document.querySelector(x).getBoundingClientRect().right <= document.querySelector(y).getBoundingClientRect().left, a, b);
+      expect(s, '알림의 백업하기가 나중에보다 왼쪽', await leftOf('#nudgeGo', '#nudgeLater'));
       const nudgeClear = await page.evaluate(() => {
         const stage = document.querySelector('.stage').getBoundingClientRect();
         return document.getElementById('backupNudge').getBoundingClientRect().bottom <= stage.bottom - 40;
