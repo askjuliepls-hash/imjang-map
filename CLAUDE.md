@@ -48,7 +48,7 @@ Windows 기준선은 2026-11-05에 통과했습니다(이후 개수는 작업에
 | `index.html` | 화면. 버전 꼬리표(`?v=`)와 import map이 여기 있습니다 |
 | `css/app.css` | 디자인 토큰(색·글꼴)과 화면 스타일 |
 | `js/app.js` | 앱 동작 (지도, 매물 목록·양식·상세, 위치 찍기) |
-| `js/lib/` | 화면과 무관한 순수 로직. 자동 테스트 대상. `listings.js` 매물 규칙, `categories.js` 내 분류, `places.js` 장소 검색 정렬, `store.js` 이 기기 저장, `format.js` 금액·평 |
+| `js/lib/` | 화면과 무관한 순수 로직. 자동 테스트 대상. `listings.js` 매물 규칙, `categories.js` 내 분류, `places.js` 장소 검색 정렬, `backup.js` 백업 파일 만들기·검사, `store.js` 이 기기 저장, `format.js` 금액·평 |
 | `js/config.js` | 카카오 JavaScript 키 |
 | `fonts/pretendard/` | Pretendard 글꼴(SIL OFL 1.1), 쓰는 글자 조각만 내려받는 방식 |
 | `tests/unit/` | 순수 로직 자동 테스트 (`node --test`) |

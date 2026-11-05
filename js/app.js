@@ -1,8 +1,11 @@
 // 약국 임장노트: 지도 위에 임장한 매물을 기록합니다. 데이터는 이 기기에만 저장합니다.
 import { KAKAO_JS_KEY } from './config.js';
-import { isStandalone, openPlace, parseAppVersion } from './lib/device.js';
+import { isAppleMobile, isStandalone, openPlace, parseAppVersion } from './lib/device.js';
 import { createStore } from './lib/store.js';
 import { rankPlaces, formatDistance } from './lib/places.js';
+import {
+  buildBackup, chooseExportPath, readBackupFile, needsReminder, formatBackupTime, REMIND_DAYS, REMIND_PENDING,
+} from './lib/backup.js';
 import {
   PALETTE, MAX_NAME, checkName, upsertCategory, removeCategory, clearCategoryFrom, categoryOf, pinColor, nextColor,
   matchesFilter, groupByCategory, pinImageUrl, NO_CATEGORY_COLOR,
@@ -15,6 +18,7 @@ import {
 } from './lib/listings.js';
 import {
   kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage, saveErrorMessage, loadErrorMessage,
+  importErrorMessage, exportFailMessage,
 } from './lib/messages.js';
 
 const VERSION = document.querySelector('meta[name="app-version"]')?.content || 'dev';
@@ -25,6 +29,7 @@ const $ = (id) => document.getElementById(id);
 
 const STANDALONE = isStandalone(window.navigator, window.matchMedia?.bind(window));
 const PLACE = openPlace(navigator.userAgent, navigator.maxTouchPoints || 0, STANDALONE);
+const APPLE = isAppleMobile(navigator.userAgent, navigator.maxTouchPoints || 0);
 const store = createStore(() => window.localStorage);
 const listingStore = createListingStore(store);
 const categoryStore = createListingStore(store, 'categories');
@@ -267,6 +272,7 @@ let cardPlace = null;
 
 function showPlaceCard(p) {
   if (pinId) hidePinCard();
+  $('backupNudge').hidden = true;
   cardPlace = p;
   $('placeName').textContent = p.place_name;
   $('placeAddress').textContent = p.road_address_name || p.address_name || '';
@@ -309,6 +315,7 @@ function showPinCard(id) {
   const item = items.find((x) => x.id === id);
   if (!item) return;
   if (cardPlace) hidePlaceCard();
+  $('backupNudge').hidden = true;
   pinId = id;
   $('pinName').textContent = item.name;
   const pinMeta = [regionOf(item), shortVisitDate(item.visitDate)].filter(Boolean).join(' · ');
@@ -429,6 +436,7 @@ function listingRow(item) {
 function renderList() {
   $('listMeta').hidden = items.length === 0;
   $('empty').hidden = items.length > 0;
+  $('emptyImport').hidden = items.length > 0;
   $('viewTabs').hidden = items.length === 0;
   for (const tab of $('viewTabs').querySelectorAll('button')) {
     tab.setAttribute('aria-pressed', String(tab.dataset.view === view));
@@ -558,6 +566,7 @@ function persistItems(next) {
   const r = listingStore.save(next);
   if (!r.ok) return r;
   items = next;
+  markChanged();
   renderList();
   renderPins();
   renderCatManage();
@@ -861,6 +870,7 @@ function onSaveListing(ev) {
   closeForm();
   toast('저장했어요.');
   if (located && tab === 'map') moveMapTo(r.data.lat, r.data.lng);
+  afterSaveNudge();
 }
 
 // 양식 안의 위치 찍기 세 가지
@@ -1046,6 +1056,7 @@ function persistCategories(next) {
   const r = categoryStore.save(next);
   if (!r.ok) return r;
   categories = next;
+  markChanged();
   renderCategoryUi();
   return r;
 }
@@ -1208,6 +1219,270 @@ function onSaveCategory() {
   catAfterSave = null;
 }
 
+// ---------- 백업 ----------
+// 기록: lastBackupAt 마지막 내보내기, dirtySince 그 뒤로 처음 바뀐 때
+let backupMeta = { lastBackupAt: null, dirtySince: null, pending: 0, introSeen: false };
+let persistGranted = null; // 아이폰이 자동 삭제 방지 요청을 받아들였는지. null은 모름
+let itemsUnreadable = false; // 저장된 매물을 읽지 못한 상태
+let shareRefused = 0;
+
+function saveBackupMeta() {
+  store.write('backup-meta', backupMeta); // 실패해도 데이터에는 지장이 없습니다.
+  renderBackupInfo();
+}
+
+function markChanged() {
+  backupMeta.pending = (backupMeta.pending || 0) + 1;
+  backupMeta.dirtySince ||= new Date().toISOString();
+  saveBackupMeta();
+}
+
+// 자동 삭제를 막아 달라고 앱을 열 때마다 요청합니다. 사파리에서 사용자에게 뜨는 창은 없어요.
+async function askPersist() {
+  if (PLACE !== 'app' || !navigator.storage?.persist) return;
+  try {
+    persistGranted = (await navigator.storage.persisted?.()) || (await navigator.storage.persist());
+  } catch {
+    persistGranted = null;
+  }
+  renderBackupInfo();
+}
+
+function renderBackupInfo() {
+  const last = backupMeta.lastBackupAt ? formatBackupTime(backupMeta.lastBackupAt) : '';
+  const pending = backupMeta.dirtySince ? backupMeta.pending || 0 : 0;
+  $('backupWhen').textContent = pending > 0 ? `백업 전 ${pending}건` : (last ? last.slice(0, 10) : '안 함');
+  $('backupWhen').dataset.alert = String(pending > 0);
+  // 백업 안 한 변경이 있으면 설정 탭에 점을 찍어 어느 화면에서든 보이게 합니다.
+  document.querySelector('#tabbar [data-tab="settings"]').dataset.alert = String(pending > 0);
+  const later = pending > 0 ? ` 그 뒤 변경 ${pending}건은 폰에만 있어요.` : '';
+  $('backupLast').textContent = last ? `마지막 백업: ${last}.${later}` : `아직 백업한 적이 없어요.${later}`;
+  $('persistLine').hidden = persistGranted === null;
+  $('persistLine').textContent = persistGranted
+    ? '자동 삭제 방지: 켜짐'
+    : '자동 삭제 방지: 아이폰이 허용하지 않았어요. 백업을 꼭 해 주세요.';
+  $('backupHow').textContent = APPLE
+    ? "누른 뒤 '카카오톡' → '나와의 채팅'으로 보내 주세요. 카톡 파일은 시간이 지나면 만료될 수 있으니, 내용이 바뀌면 다시 보내 주세요."
+    : '누르면 파일이 저장돼요. 폰 밖에 옮겨 두면 폰을 바꿔도 되살릴 수 있어요.';
+  const snap = store.read('before-import');
+  const has = snap.ok && snap.data?.listings;
+  $('undoImport').hidden = !has;
+  if (has) $('undoImport').textContent = `가져오기 전으로 되돌리기 (${snap.data.listings.length}개)`;
+}
+
+function backupSay(text, tone = 'info') {
+  const el = $('backupMsg');
+  el.dataset.tone = tone;
+  el.textContent = text;
+  el.hidden = false;
+}
+
+function exported() {
+  backupMeta.lastBackupAt = new Date().toISOString();
+  backupMeta.dirtySince = null;
+  backupMeta.pending = 0;
+  saveBackupMeta();
+  $('backupNudge').hidden = true;
+}
+
+function downloadFile(text, fileName) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/octet-stream' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  exported();
+  // 저장 창에서 취소했는지는 앱이 알 수 없어요.
+  backupSay(`파일로 내보냈어요. ${fileName} 이 저장됐는지 확인해 주세요.`, 'ok');
+}
+
+// 공유 창은 눌렀을 때 바로 열어야 해서, 이 함수 안에서는 기다리는 일을 하지 않습니다.
+function onExport(forceDownload = false) {
+  // 읽지 못한 상태나 빈 상태로 내보내면 빈 파일을 진짜 백업으로 착각할 수 있어요.
+  if (itemsUnreadable) {
+    backupSay('저장된 매물을 읽지 못해서 내보낼 수 없어요. 캡처를 Claude에게 보내 주세요.', 'fail');
+    return;
+  }
+  if (items.length === 0 && categories.length === 0) {
+    backupSay('아직 내보낼 매물이 없어요.');
+    return;
+  }
+  try {
+    const { fileName, text } = buildBackup({ listings: items, categories, now: new Date() });
+    if (forceDownload) {
+      downloadFile(text, fileName);
+      return;
+    }
+    const file = new File([text], fileName, { type: 'application/json' });
+    let canShare = false;
+    try {
+      canShare = !!navigator.canShare?.({ files: [file] });
+    } catch { /* 못 하는 것으로 칩니다 */ }
+    if (chooseExportPath({ apple: APPLE, isApp: PLACE === 'app', canShare }) === 'download') {
+      downloadFile(text, fileName);
+      return;
+    }
+    navigator.share({ files: [file] }).then(() => {
+      exported();
+      backupSay(`보냈어요. 매물 ${items.length}개가 파일에 들어 있어요.`, 'ok');
+    }).catch((e) => {
+      const name = e?.name || String(e);
+      if (name === 'AbortError') { // 카톡이 보낸 뒤에도 이렇게 알릴 수 있어서 실패로 단정하지 않습니다.
+        backupSay('공유 창이 닫혔어요. 파일이 카톡에 안 갔으면 다시 눌러 주세요.');
+      } else if (name === 'NotAllowedError' && shareRefused === 0) {
+        shareRefused += 1;
+        backupSay('한 번 더 눌러 주세요.');
+      } else if (name === 'InvalidStateError') {
+        backupSay('공유 창이 안 보이면 앱을 닫았다 다시 열어 주세요.');
+      } else {
+        backupSay(exportFailMessage(name), 'fail');
+      }
+    });
+  } catch (e) {
+    backupSay(exportFailMessage(e?.name || String(e)), 'fail');
+  }
+}
+
+function replaceAll(listings, cats) {
+  const r1 = listingStore.save(listings);
+  if (!r1.ok) return r1;
+  const r2 = categoryStore.save(cats);
+  if (!r2.ok) {
+    listingStore.save(items); // 분류 저장이 실패하면 매물도 원래대로 돌립니다.
+    return r2;
+  }
+  items = listings;
+  categories = cats;
+  mapFilter = null;
+  dateMode = 'new';
+  pickedDate = null;
+  renderCategoryUi();
+  return { ok: true };
+}
+
+function applyImport(r) {
+  if (itemsUnreadable) {
+    // 읽지 못하던 값은 사용자가 바꾸기를 눌렀으니 덮습니다.
+    listingStore.unblock();
+    categoryStore.unblock();
+  }
+  // 교체 전 내용을 먼저 남깁니다. 여기서 실패하면 교체하지 않습니다.
+  const snap = store.write('before-import', { listings: items, categories, at: new Date().toISOString() });
+  if (!snap.ok) {
+    backupSay(saveErrorMessage(snap.reason, snap.detail), 'fail');
+    toast(saveErrorMessage(snap.reason, snap.detail), 'fail');
+    return;
+  }
+  const done = replaceAll(r.listings, r.categories);
+  if (!done.ok) {
+    backupSay(saveErrorMessage(done.reason, done.detail), 'fail');
+    toast(saveErrorMessage(done.reason, done.detail), 'fail');
+    return;
+  }
+  if (itemsUnreadable) {
+    itemsUnreadable = false;
+    $('loadMsg').hidden = true;
+    $('addBtn').disabled = false;
+    $('toast').hidden = true;
+    window.__hideReload?.();
+  }
+  // 지금 내용이 파일과 같아졌으니 백업 안 한 변경이 없습니다.
+  backupMeta.dirtySince = null;
+  backupMeta.pending = 0;
+  saveBackupMeta();
+  const msg = `매물 ${r.listings.length}개, 분류 ${r.categories.length}개를 가져왔어요. 잘못 골랐으면 '되돌리기'를 눌러 주세요.`;
+  backupSay(msg, 'ok');
+  toast(`매물 ${r.listings.length}개를 가져왔어요.`);
+}
+
+async function onImportPicked(ev) {
+  const input = ev.target;
+  try {
+    const file = input.files?.[0];
+    if (!file) return;
+    const r = await readBackupFile(file);
+    if (!r.ok) {
+      const msg = importErrorMessage(r.reason, r.detail);
+      backupSay(msg, 'fail');
+      toast(msg, 'fail');
+      return;
+    }
+    if (items.length === 0 && categories.length === 0 && !itemsUnreadable) {
+      applyImport(r); // 지킬 내용이 없으면 묻지 않습니다.
+      return;
+    }
+    const when = r.exportedAt ? formatBackupTime(r.exportedAt) : '';
+    const lines = [
+      `파일: 매물 ${r.listings.length}개, 분류 ${r.categories.length}개${when ? ` (${when} 백업)` : ''}`,
+      itemsUnreadable ? '지금: 저장된 매물을 읽지 못하는 상태예요. 바꾸면 그 값은 사라져요.' : `지금: 매물 ${items.length}개, 분류 ${categories.length}개`,
+      '지금 내용을 파일 내용으로 바꿀까요?',
+    ];
+    askConfirm(lines.join('\n'), '바꾸기', '취소', () => applyImport(r));
+  } catch (e) {
+    const msg = importErrorMessage('read-failed', e?.name || String(e));
+    backupSay(msg, 'fail');
+    toast(msg, 'fail');
+  } finally {
+    input.value = ''; // 같은 파일을 다시 고를 수 있게 비웁니다.
+  }
+}
+
+function onUndoImport() {
+  const snap = store.read('before-import');
+  if (!snap.ok || !snap.data?.listings) return;
+  askConfirm(`가져오기 전 내용(매물 ${snap.data.listings.length}개)으로 되돌릴까요?`, '되돌리기', '취소', () => {
+    const done = replaceAll(snap.data.listings, snap.data.categories || []);
+    if (!done.ok) {
+      backupSay(saveErrorMessage(done.reason, done.detail), 'fail');
+      return;
+    }
+    markChanged(); // 되돌린 내용은 파일에 없을 수 있어요.
+    backupSay('가져오기 전 내용으로 되돌렸어요.', 'ok');
+  });
+}
+
+function showNudge() {
+  const n = backupMeta.pending || 0;
+  $('nudgeText').textContent = n >= REMIND_PENDING
+    ? `백업하지 않은 변경이 ${n}건 있어요. 폰을 잃거나 바꾸면 되살릴 수 없어요.`
+    : `바꾼 내용을 ${REMIND_DAYS}일 넘게 백업하지 않았어요. 폰을 잃거나 바꾸면 되살릴 수 없어요.`;
+  $('backupNudge').hidden = false;
+}
+
+function checkReminder() {
+  if (PLACE !== 'app') return;
+  if (needsReminder({ count: items.length, dirtySince: backupMeta.dirtySince, pending: backupMeta.pending, now: new Date() })) showNudge();
+}
+
+function openBackupScreen() {
+  $('backupNudge').hidden = true;
+  setTab('settings');
+  $('backupMsg').hidden = true;
+  renderBackupInfo();
+  $('backupScreen').hidden = false;
+}
+
+// 저장 직후: 처음 한 번은 폰에만 저장된다는 것을 분명히 알리고, 그 뒤로는 3건마다 권합니다.
+function afterSaveNudge() {
+  if (PLACE !== 'app') return;
+  if (!backupMeta.introSeen) {
+    backupMeta.introSeen = true;
+    saveBackupMeta();
+    askConfirm(
+      '이 앱은 이 폰에만 저장돼요.\n폰을 잃거나 바꾸면 되살릴 수 없어요. 백업 파일을 카톡 나와의 채팅으로 보내 두세요.',
+      '지금 백업하기',
+      '나중에',
+      openBackupScreen,
+    );
+    return;
+  }
+  const n = backupMeta.pending || 0;
+  if (n >= REMIND_PENDING && n % REMIND_PENDING === 0) showNudge();
+}
+
 // ---------- 하단 탭 ----------
 let tab = 'map';
 
@@ -1219,12 +1494,13 @@ function setTab(next) {
     b.setAttribute('aria-pressed', String(b.dataset.tab === next));
   }
   $('toast').hidden = true;
+  $('backupNudge').hidden = true;
   // 숨겨 둔 지도는 크기를 모르므로 돌아올 때 다시 맞춥니다.
   if (next === 'map') map?.relayout();
 }
 
 // ---------- 새 버전 자동 적용 ----------
-const busy = () => !$('calModal').hidden || !$('formScreen').hidden || !$('detailScreen').hidden || !$('catScreen').hidden || !$('catModal').hidden || !$('modal').hidden || picking;
+const busy = () => !$('backupScreen').hidden || !$('calModal').hidden || !$('formScreen').hidden || !$('detailScreen').hidden || !$('catScreen').hidden || !$('catModal').hidden || !$('modal').hidden || picking;
 
 async function checkForUpdate() {
   if (busy()) return; // 입력하거나 보고 있는 중에는 건드리지 않습니다.
@@ -1257,12 +1533,12 @@ function loadItems() {
     return;
   }
   // 읽지 못하면 덮어쓰지 않도록 추가·저장을 막고 알립니다.
+  itemsUnreadable = true;
   const el = $('loadMsg');
   el.textContent = loadErrorMessage(r.reason, r.detail);
   el.hidden = false;
   $('addBtn').disabled = true;
-  toast(el.textContent, 'fail'); // 처음 화면이 지도라 목록의 안내만으로는 안 보입니다.
-  window.__showReload?.('매물을 읽지 못했어요.');
+  window.__showReload?.(el.textContent); // 처음 화면이 지도라 목록의 안내만으로는 안 보입니다.
 }
 
 $('ver').textContent = VERSION;
@@ -1352,6 +1628,14 @@ for (const tab of $('viewTabs').querySelectorAll('button')) {
   tab.addEventListener('click', () => setView(tab.dataset.view));
 }
 
+$('backupOpen').addEventListener('click', openBackupScreen);
+$('backupClose').addEventListener('click', () => { $('backupScreen').hidden = true; });
+$('exportBtn').addEventListener('click', () => onExport());
+$('downloadBtn').addEventListener('click', () => onExport(true));
+$('importFile').addEventListener('change', onImportPicked);
+$('undoImport').addEventListener('click', onUndoImport);
+$('nudgeLater').addEventListener('click', () => { $('backupNudge').hidden = true; });
+$('nudgeGo').addEventListener('click', openBackupScreen);
 $('catManage').addEventListener('click', () => { $('catScreen').hidden = false; });
 $('catScreenClose').addEventListener('click', () => { $('catScreen').hidden = true; });
 $('catAdd').addEventListener('click', () => openCatModal(null));
@@ -1369,6 +1653,16 @@ buildForm();
 loadItems();
 const loadedCats = categoryStore.load();
 if (loadedCats.ok) categories = loadedCats.items;
+const savedMeta = store.read('backup-meta');
+if (savedMeta.ok && savedMeta.data) backupMeta = { ...backupMeta, ...savedMeta.data };
+else if (items.length > 0) { // 백업 기능이 생기기 전부터 있던 매물
+  backupMeta.pending = items.length;
+  backupMeta.dirtySince = new Date().toISOString();
+  saveBackupMeta();
+}
+renderBackupInfo();
+checkReminder();
+askPersist();
 showPlaceNotice();
 renderCategoryUi();
 renderDraftLocation();

@@ -18,6 +18,7 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
 <script type="importmap">
 {
   "imports": {
+    "./js/lib/backup.js": "./js/lib/backup.js?v=0.3.0-1105f",
     "./js/lib/categories.js": "./js/lib/categories.js?v=0.3.0-1105f",
     "./js/config.js": "./js/config.js?v=0.3.0-1105f",
     "./js/lib/device.js": "./js/lib/device.js?v=0.3.0-1105f",
@@ -97,6 +98,7 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
     <div class="sheet-body" id="sheetBody">
       <p class="form-msg" id="loadMsg" role="alert" hidden></p>
       <p class="muted" id="empty">아직 저장한 매물이 없어요. 아래 '+ 매물 추가'로 시작해 보세요.</p>
+      <label class="text-btn empty-import" id="emptyImport" for="importFile">백업 파일이 있으면 가져오기</label>
       <div class="view-tabs" id="viewTabs" role="group" aria-label="목록 보기" hidden>
         <button type="button" data-view="date" aria-pressed="true">임장 날짜별</button>
         <button type="button" data-view="region" aria-pressed="false">지역별</button>
@@ -125,10 +127,10 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
       <span class="set-text"><span class="set-label">내 분류 관리</span><span class="set-note">매물을 묶고 지도 핀 색을 정해요</span></span>
       <span class="set-value" id="catCount"></span>
     </button>
-    <div class="set-row">
+    <button class="set-row" id="backupOpen" type="button">
       <span class="set-text"><span class="set-label">백업하기</span></span>
-      <span class="set-value">준비 중</span>
-    </div>
+      <span class="set-value" id="backupWhen"></span>
+    </button>
     <div class="set-row">
       <span class="set-text"><span class="set-label">버전</span></span>
       <span class="set-value" id="ver"></span>
@@ -136,6 +138,15 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
   </section>
 
   <button id="addBtn" class="fill-btn add-btn" type="button">+ 매물 추가</button>
+  <!-- 아이폰은 숨긴 입력의 선택창을 안 열 수 있어 화면 밖에 둡니다. accept를 넣으면 파일이 회색이 될 수 있어요. -->
+  <input class="sr-only file-input" id="importFile" type="file" aria-label="백업 파일 고르기">
+  <div class="nudge" id="backupNudge" role="status" hidden>
+    <p id="nudgeText"></p>
+    <div class="pick-actions">
+      <button class="text-btn" id="nudgeLater" type="button">나중에</button>
+      <button class="fill-btn" id="nudgeGo" type="button">백업하기</button>
+    </div>
+  </div>
   <p id="toast" class="form-msg top-msg" role="status" hidden></p>
 
   <nav class="tabbar" id="tabbar" aria-label="화면">
@@ -216,6 +227,32 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
         <button class="btn primary" id="editBtn" type="button">수정하기</button>
         <button class="text-btn" id="deleteBtn" type="button">삭제하기</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 백업 -->
+  <div class="screen" id="backupScreen" hidden>
+    <header class="screen-head">
+      <button class="text-btn" id="backupClose" type="button">닫기</button>
+      <h1>백업</h1>
+      <span class="head-gap"></span>
+    </header>
+    <div class="screen-body">
+      <section class="group">
+        <h2>내보내기</h2>
+        <p class="muted" id="backupLast"></p>
+        <p class="muted" id="persistLine" hidden></p>
+        <p class="next-help" id="backupHow"></p>
+        <p class="form-msg" id="backupMsg" role="status" hidden></p>
+        <button class="btn primary" id="exportBtn" type="button">백업 파일 내보내기</button>
+        <button class="text-btn back-alt" id="downloadBtn" type="button">파일로 바로 저장</button>
+      </section>
+      <section class="group">
+        <h2>되살리기</h2>
+        <p class="next-help">폰을 바꿨거나 내용이 사라졌을 때 써요. 지금 내용이 파일 내용으로 바뀌어요. 바꾸기 전에 한 번 더 물어봐요.</p>
+        <label class="btn primary" id="importLabel" for="importFile">백업 파일 가져오기</label>
+        <button class="text-btn back-alt" id="undoImport" type="button" hidden></button>
+      </section>
     </div>
   </div>
 

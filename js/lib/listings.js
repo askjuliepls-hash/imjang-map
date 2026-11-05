@@ -222,6 +222,10 @@ export function createListingStore(store, key = LISTINGS_KEY) {
       blocked = null;
       return { ok: true, items: Array.isArray(r.data?.items) ? r.data.items : [] };
     },
+    // 사용자가 확인하고 백업 파일로 교체할 때만 씁니다. 읽지 못하던 값은 그때 덮입니다.
+    unblock() {
+      blocked = null;
+    },
     save(items) {
       if (blocked) return { ok: false, reason: 'blocked', detail: blocked };
       return store.write(key, { items });

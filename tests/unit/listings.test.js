@@ -230,3 +230,14 @@ test('목록 금액은 적은 것만, 예상 순수익까지 보여 준다', () 
   assert.deepEqual(listingFacts({ netProfit: '800' }), [{ label: '예상 순수익', value: '800만원' }]);
   assert.deepEqual(listingFacts({}), []);
 });
+
+test('읽지 못한 값은 확인 뒤 교체할 때만 덮는다', () => {
+  const key = `${KEY_PREFIX}listings`;
+  const s = fakeStorage({ [key]: '{깨진 값' });
+  const ls = createListingStore(createStore(() => s));
+  ls.load();
+  assert.equal(ls.save([{ id: 'x' }]).reason, 'blocked');
+  ls.unblock();
+  assert.equal(ls.save([{ id: 'x' }]).ok, true);
+  assert.deepEqual(ls.load().items, [{ id: 'x' }]);
+});

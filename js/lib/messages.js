@@ -70,5 +70,35 @@ export function saveErrorMessage(reason, detail = '') {
 }
 
 export function loadErrorMessage(reason, detail = '') {
-  return `저장된 매물을 읽지 못했어요. (${reason}${detail ? ` ${detail}` : ''}) 데이터를 덮어쓰지 않도록 추가를 막아 뒀어요. '다시 불러오기'를 눌러 보고, 그래도 이러면 캡처를 Claude에게 보내 주세요.`;
+  return `저장된 매물을 읽지 못했어요. (${reason}${detail ? ` ${detail}` : ''}) 데이터를 덮어쓰지 않도록 추가를 막아 뒀어요. '다시 불러오기'를 눌러 보고, 그래도 이러면 캡처를 Claude에게 보내 주세요. 백업 파일이 있으면 설정의 백업하기에서 되살릴 수 있어요.`;
+}
+
+const STILL_SAFE = ' 지금 있는 내용은 그대로예요.';
+
+export function importErrorMessage(reason, detail = '') {
+  switch (reason) {
+    case 'read-failed':
+      return `파일을 읽지 못했어요. (${detail || '알 수 없는 오류'})${STILL_SAFE}`;
+    case 'empty':
+      return `빈 파일이에요.${STILL_SAFE}`;
+    case 'too-big':
+      return `파일이 너무 커요. 내보낸 백업 파일을 골랐는지 봐 주세요.${STILL_SAFE}`;
+    case 'encoding':
+    case 'bad-json':
+      return `파일이 잘렸거나 손상됐어요. 사진이 아니라 내보낸 백업 파일을 골랐는지 봐 주세요.${STILL_SAFE}`;
+    case 'other-app':
+      return `임장노트 백업 파일이 아니에요.${STILL_SAFE}`;
+    case 'newer':
+      return `더 새 버전 앱에서 만든 파일이에요. 앱을 닫았다 다시 열어 새 버전을 받은 뒤 해 주세요.${STILL_SAFE}`;
+    case 'test-file':
+      return `연결 점검 때 만든 시험 파일이에요. 진짜 백업 파일을 골라 주세요.${STILL_SAFE}`;
+    case 'bad-shape':
+      return `파일 내용이 맞지 않아요. 옮기는 중에 잘렸을 수 있어요.${STILL_SAFE}`;
+    default:
+      return `가져오지 못했어요. (${reason})${STILL_SAFE}`;
+  }
+}
+
+export function exportFailMessage(name) {
+  return `공유 창을 열지 못했어요. (${name}) '파일로 바로 저장'을 눌러 보세요. 화면이 막히면 앱을 닫았다 다시 열어 주세요.`;
 }

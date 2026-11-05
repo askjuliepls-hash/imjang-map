@@ -3,7 +3,7 @@
 // 사용법: npm run preview -- [캡처 저장 폴더]
 import puppeteer from 'puppeteer-core';
 import http from 'node:http';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +50,19 @@ const mocks = {
   configEmpty: await readFile(join(ROOT, 'tests/e2e/mocks/config-empty.js'), 'utf8'),
 };
 
+// 다른 시나리오의 클릭을 가리지 않게 첫 안내와 백업 알림을 끕니다. 시험할 때는 mode.realNudge를 켭니다.
+const quietNudge = () => {
+  try {
+    const k = 'imjang-map:backup-meta';
+    if (!localStorage.getItem(k)) localStorage.setItem(k, JSON.stringify({ schemaVersion: 1, data: { lastBackupAt: null, dirtySince: null, pending: 0, introSeen: true } }));
+  } catch { /* about:blank */ }
+  document.addEventListener('DOMContentLoaded', () => {
+    const s = document.createElement('style');
+    s.textContent = '#backupNudge{display:none!important}';
+    document.head.append(s);
+  });
+};
+
 const interceptFor = (mode, requests = []) => (req) => {
   const u = new URL(req.url());
   requests.push(u.pathname + u.search);
@@ -79,6 +92,7 @@ async function openPage(browser, mode, scenario) {
   await page.setUserAgent(mode.ua || IPHONE_UA);
   await page.setViewport(mode.viewport || PHONE);
   await page.setGeolocation({ latitude: 37.5668, longitude: 126.9786, accuracy: 24 });
+  if (!mode.realNudge) await page.evaluateOnNewDocument(quietNudge);
   for (const f of [].concat(mode.init || [])) await page.evaluateOnNewDocument(f);
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
@@ -148,6 +162,39 @@ const stored = (page) => page.evaluate(() => {
 const visible = (page, sel) => page.$eval(sel, (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const text = (page, sel) => page.$eval(sel, (el) => el.textContent);
+// 가짜 공유 창: 받은 파일을 그대로 적어 둡니다. window.__shareMode로 거절·취소를 흉내 냅니다.
+const fakeShare = () => {
+  window.__shared = [];
+  navigator.canShare = () => window.__canShare !== false;
+  navigator.share = async (d) => {
+    if (window.__shareMode) throw new DOMException('fake', window.__shareMode);
+    const f = d.files[0];
+    window.__shared.push({ keys: Object.keys(d), name: f.name, type: f.type, text: await f.text() });
+  };
+};
+// 내려받기를 가로채 파일 내용을 확인합니다.
+const hookDownload = () => {
+  window.__downloads = [];
+  const create = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (b) => { window.__lastBlob = b; return create(b); };
+  HTMLAnchorElement.prototype.click = function click() { window.__downloads.push({ name: this.download, blob: window.__lastBlob }); };
+};
+const lastDownload = (page) => page.evaluate(async () => {
+  const d = window.__downloads.at(-1);
+  if (!d) return null;
+  const b = new Uint8Array(await d.blob.arrayBuffer());
+  return { name: d.name, first: b[0], text: new TextDecoder().decode(b) };
+});
+const lastShared = (page) => page.evaluate(() => window.__shared.at(-1) || null);
+let fileNo = 0;
+async function pickFile(page, content, sel = '#importLabel') {
+  fileNo += 1;
+  const path = join(OUT, `pick-${fileNo}.json`);
+  await writeFile(path, content);
+  const [chooser] = await Promise.all([page.waitForFileChooser({ timeout: 5000 }), page.click(sel)]);
+  await chooser.accept([path]);
+  await new Promise((r) => setTimeout(r, 200));
+}
 const goTab = (page, name) => page.click(`#tabbar [data-tab="${name}"]`);
 const openFirst = async (page) => {
   await goTab(page, 'list');
@@ -704,7 +751,8 @@ try {
       await page.evaluate(() => localStorage.setItem('imjang-map:listings', '{깨진 값'));
       await page.reload({ waitUntil: 'load' });
       await appReady(page);
-      expect(s, '못 읽으면 처음 화면에서 바로 알리고 추가를 막음', await visible(page, '#toast') && (await text(page, '#toast')).includes('읽지 못했어요') && await visible(page, '#topReload') && await page.$eval('#addBtn', (el) => el.disabled));
+      expect(s, '못 읽으면 처음 화면에서 바로 알리고 추가를 막음', (await text(page, '#reloadMsg')).includes('읽지 못했어요') && await visible(page, '#topReload') && await page.$eval('#addBtn', (el) => el.disabled));
+      await shot(page, 'd-load-failed-map');
       await goTab(page, 'list');
       expect(s, '목록에도 이유가 보임', await visible(page, '#loadMsg'));
       expect(s, '깨진 값을 덮어쓰지 않음', (await page.evaluate(() => localStorage.getItem('imjang-map:listings'))) === '{깨진 값');
@@ -884,6 +932,268 @@ try {
     expect(s, '받은 파일이 그대로여도 반복해서 다시 읽지 않음', loads === after, `${after} -> ${loads}`);
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
+  });
+
+  // W. 백업: 내보내기, 되살리기, 되돌리기, 잘못된 파일, 알림
+  await scenario('W 백업', async (s) => {
+    const openBackup = async (page) => {
+      await goTab(page, 'settings');
+      await page.click('#backupOpen');
+    };
+    {
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, fakeShare, hookDownload] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      await page.waitForSelector('#locSearchBtn:not([disabled])', { timeout: 3000 });
+      await goTab(page, 'settings');
+      expect(s, '설정에 아직 백업 안 함으로 보임', (await text(page, '#backupWhen')) === '안 함');
+      await goTab(page, 'map');
+      // 매물 2개와 분류 1개
+      await page.click('#addBtn');
+      await page.type('#f-name', '○○약국 "임대" ☕');
+      await page.click('#catNew');
+      await page.type('#catName', '후보');
+      await page.click('#catSave');
+      await wait(40);
+      await page.type('#f-premium', '15000');
+      await page.click('#locHereBtn');
+      await wait(120);
+      await page.click('#saveListing');
+      await wait(60);
+      await fillAndSave(page, { name: '두 번째 약국' });
+      await openBackup(page);
+      expect(s, '백업 화면이 열리고 카톡 안내가 보임', await visible(page, '#backupScreen') && (await text(page, '#backupHow')).includes('나와의 채팅'));
+      expect(s, '내보내기 버튼이 스크롤 없이 보임', await inView(page, '#exportBtn'));
+      await shot(page, 'w-backup');
+      await page.evaluate(() => { window.__shareMode = 'AbortError'; });
+      await page.click('#exportBtn');
+      await wait(120);
+      expect(s, '공유 창을 닫으면 실패로 안 보이고 백업 시각도 안 바뀜', (await text(page, '#backupMsg')).includes('닫혔어요') && (await page.$eval('#backupMsg', (el) => el.dataset.tone)) === 'info' && (await text(page, '#backupLast')).includes('아직'));
+      await page.evaluate(() => { window.__shareMode = ''; });
+      await page.click('#exportBtn');
+      await wait(120);
+      const f = await lastShared(page);
+      const body = JSON.parse(f.text);
+      expect(s, '파일에 매물과 분류가 들어감', /^imjang-backup-\d{4}-\d{2}-\d{2}-\d{4}\.json$/.test(f.name) && f.type === 'application/json' && f.keys.join() === 'files' && body.listings.length === 2 && body.categories.length === 1 && body.count === 2, f.name);
+      expect(s, '내보내면 마지막 백업 시각이 보임', (await text(page, '#backupLast')).includes('마지막 백업') && (await text(page, '#backupMsg')).includes('매물 2개'));
+      await shot(page, 'w-exported');
+      await page.click('#downloadBtn');
+      await wait(60);
+      const d = await lastDownload(page);
+      expect(s, '파일로 바로 저장: 파일이 생기고 UTF-8, BOM 없음', !!d && /\.json$/.test(d.name) && d.first === 0x7b && d.text.includes('임대'), JSON.stringify(d?.name));
+      const backupText = f.text;
+      // 잘못된 파일
+      const before = await page.evaluate(() => localStorage.getItem('imjang-map:listings'));
+      for (const [what, content, word] of [
+        ['깨진 파일', '{ 잘린', '손상'],
+        ['다른 앱', JSON.stringify({ app: 'other', schemaVersion: 1 }), '백업 파일이 아니에요'],
+        ['시험 파일', JSON.stringify({ app: 'imjang-map', schemaVersion: 1, purpose: 'connection-test' }), '시험 파일'],
+        ['높은 버전', JSON.stringify({ app: 'imjang-map', schemaVersion: 99 }), '더 새 버전'],
+        ['잘린 내용', JSON.stringify({ app: 'imjang-map', schemaVersion: 1, count: 5, listings: [] }), '내용이 맞지 않아요'],
+      ]) {
+        await pickFile(page, content);
+        const msg = await text(page, '#backupMsg');
+        expect(s, `${what}: 이유가 보이고 묻지 않음`, msg.includes(word) && msg.includes('그대로예요') && !(await visible(page, '#modal')), msg);
+        expect(s, `${what}: 저장값이 그대로`, (await page.evaluate(() => localStorage.getItem('imjang-map:listings'))) === before);
+      }
+      await shot(page, 'w-bad-file');
+      // 지운 뒤 되살리기
+      await page.click('#backupClose');
+      await goTab(page, 'list');
+      await openFirst(page);
+      await page.click('#deleteBtn');
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '하나 지우면 1개', (await stored(page)).length === 1);
+      await openBackup(page);
+      await pickFile(page, backupText);
+      expect(s, '바꾸기 전에 개수를 보여 주고 물음', await visible(page, '#modal') && (await text(page, '#modalText')).includes('파일: 매물 2개') && (await text(page, '#modalText')).includes('지금: 매물 1개') && await inView(page, '#modalYes'));
+      await shot(page, 'w-confirm');
+      await page.click('#modalNo');
+      expect(s, '취소하면 그대로', (await stored(page)).length === 1);
+      await pickFile(page, backupText);
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '바꾸기를 누르면 매물과 분류가 돌아옴', (await stored(page)).length === 2 && (await page.$$('.mock-marker')).length >= 1 && (await text(page, '#backupMsg')).includes('2개'));
+      expect(s, '되돌리기가 보임', await visible(page, '#undoImport'));
+      await shot(page, 'w-imported');
+      await page.click('#undoImport');
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '되돌리면 가져오기 전으로', (await stored(page)).length === 1);
+      await page.click('#backupClose');
+      await goTab(page, 'list');
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      expect(s, '다시 열어도 유지', (await stored(page)).length === 1);
+      expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
+      await context.close();
+    }
+    {
+      // 새 폰: 빈 화면에서 바로 되살리기
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, fakeShare] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      await goTab(page, 'list');
+      expect(s, '빈 목록에 가져오기가 보임', await visible(page, '#emptyImport'));
+      await shot(page, 'w-empty-import');
+      const file = JSON.stringify({ app: 'imjang-map', schemaVersion: 1, count: 1, listings: [{ id: 'x', name: '되살린 약국', lat: 37.56, lng: 126.97, categoryId: 'c' }], categories: [{ id: 'c', name: '유력', color: '#3F82D9' }] });
+      await pickFile(page, file, '#emptyImport');
+      expect(s, '지킬 내용이 없으면 묻지 않고 되살림', !(await visible(page, '#modal')) && (await stored(page)).length === 1 && (await text(page, '#list')).includes('되살린 약국'));
+      expect(s, '되살린 분류도 보임', (await text(page, '#list')).includes('유력'));
+      expect(s, '가져오기 뒤에는 빈 안내가 사라짐', !(await visible(page, '#emptyImport')));
+      expect(s, '스크립트 오류 없음(새 폰)', errors.length === 0, errors.join(' | '));
+      await context.close();
+    }
+    {
+      // 재발 방지(2026-11-05): 읽지 못하는 상태에서 빈 파일을 백업으로 내보내거나, 되살리기까지 막히던 위험
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, fakeShare, hookDownload] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      await openBackup(page);
+      await page.click('#exportBtn');
+      await wait(60);
+      expect(s, '매물이 없으면 내보내지 않음', (await text(page, '#backupMsg')).includes('내보낼 매물이 없어요') && (await lastShared(page)) === null);
+      await page.evaluate(() => localStorage.setItem('imjang-map:listings', '{깨진 값'));
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      // 재발 방지(2026-11-05): 안내 상자가 설정 줄을 덮어 되살리러 갈 수 없던 문제
+      await goTab(page, 'settings');
+      const notCovered = await page.$eval('#backupOpen', (el) => {
+        const r = el.getBoundingClientRect();
+        const c = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return el.contains(c);
+      });
+      expect(s, '읽지 못하는 상태에서도 백업 줄을 누를 수 있음', notCovered);
+      await page.click('#backupOpen');
+      await page.click('#exportBtn');
+      await wait(60);
+      expect(s, '읽지 못하는 상태면 빈 파일을 내보내지 않음', (await text(page, '#backupMsg')).includes('읽지 못해서') && (await lastShared(page)) === null && (await lastDownload(page)) === null);
+      const rescue = JSON.stringify({ app: 'imjang-map', schemaVersion: 1, count: 1, listings: [{ id: 'x', name: '구한 약국', lat: null, lng: null }], categories: [] });
+      await pickFile(page, rescue);
+      expect(s, '읽지 못하는 상태에서도 묻고 되살릴 수 있음', await visible(page, '#modal') && (await text(page, '#modalText')).includes('읽지 못하는 상태'));
+      await page.click('#modalNo');
+      expect(s, '취소하면 깨진 값을 안 덮음', (await page.evaluate(() => localStorage.getItem('imjang-map:listings'))) === '{깨진 값');
+      await pickFile(page, rescue);
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '바꾸면 되살아나고 매물 추가가 다시 됨', (await stored(page)).length === 1 && await page.$eval('#addBtn', (el) => !el.disabled) && !(await visible(page, '#topReload')));
+      expect(s, '스크립트 오류 없음(되살리기)', errors.length === 0, errors.join(' | '));
+      await context.close();
+    }
+    {
+      // 공유 거절, 공유 불가, 안드로이드
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, fakeShare, hookDownload] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      await fillAndSave(page, { name: '약국' });
+      await openBackup(page);
+      await page.evaluate(() => { window.__shareMode = 'NotAllowedError'; });
+      await page.click('#exportBtn');
+      await wait(100);
+      expect(s, '아이폰 첫 거절은 다운로드로 안 넘어감', (await lastDownload(page)) === null && (await text(page, '#backupMsg')).includes('한 번 더'));
+      await page.click('#exportBtn');
+      await wait(100);
+      expect(s, '두 번째 거절은 실패 안내', (await page.$eval('#backupMsg', (el) => el.dataset.tone)) === 'fail' && (await lastDownload(page)) === null);
+      await context.close();
+    }
+    {
+      const ua = 'Mozilla/5.0 (Linux; Android 14; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', ua, init: [asApp, fakeShare, hookDownload] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      await fillAndSave(page, { name: '약국' });
+      await openBackup(page);
+      expect(s, '안드로이드 안내는 카톡이 아님', (await text(page, '#backupHow')).includes('파일이 저장돼요'));
+      await page.click('#exportBtn');
+      await wait(100);
+      expect(s, '안드로이드는 공유를 안 부르고 파일이 생김', !!(await lastDownload(page)) && (await lastShared(page)) === null);
+      await context.close();
+    }
+    {
+      // 강한 유도: 첫 저장 안내, 설정 탭 점, 3건마다 알림
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', realNudge: true, init: [asApp, fakeShare, () => {
+        window.__persistCalls = 0;
+        navigator.storage.persisted = async () => false;
+        navigator.storage.persist = async () => { window.__persistCalls += 1; return true; };
+      }] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      await wait(60);
+      expect(s, '앱을 열면 자동 삭제 방지를 요청함', (await page.evaluate(() => window.__persistCalls)) >= 1);
+      await page.click('#addBtn');
+      await page.type('#f-name', '첫 약국');
+      await page.click('#saveListing');
+      await wait(80);
+      expect(s, '첫 저장 뒤 폰에만 저장된다고 창으로 알림', await visible(page, '#modal') && (await text(page, '#modalText')).includes('이 폰에만') && await inView(page, '#modalYes'));
+      await shot(page, 'w-intro');
+      await page.click('#modalNo');
+      expect(s, '설정 탭에 점이 찍힘', (await page.$eval('#tabbar [data-tab="settings"]', (el) => el.dataset.alert)) === 'true');
+      await page.click('#addBtn');
+      await page.type('#f-name', '둘째 약국');
+      await page.click('#saveListing');
+      await wait(80);
+      expect(s, '안내 창은 처음 한 번만', !(await visible(page, '#modal')) && !(await visible(page, '#backupNudge')));
+      await page.click('#addBtn');
+      await page.type('#f-name', '셋째 약국');
+      await page.click('#saveListing');
+      await wait(80);
+      expect(s, '3건 쌓이면 알림', await visible(page, '#backupNudge') && (await text(page, '#nudgeText')).includes('3건') && await inView(page, '#nudgeGo'));
+      await shot(page, 'w-nudge-3');
+      await page.click('#nudgeLater');
+      await goTab(page, 'settings');
+      expect(s, '설정에 백업 전 건수가 보임', (await text(page, '#backupWhen')) === '백업 전 3건');
+      await shot(page, 'w-settings-pending');
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      expect(s, '나중에를 눌러도 다음에 열면 다시 알림', await visible(page, '#backupNudge'));
+      await page.click('#nudgeGo');
+      await wait(60);
+      expect(s, '알림에서 백업 화면으로 감', await visible(page, '#backupScreen') && (await text(page, '#backupLast')).includes('3건'));
+      expect(s, '자동 삭제 방지 상태가 보임', (await text(page, '#persistLine')).includes('켜짐'));
+      await shot(page, 'w-backup-pending');
+      await page.click('#exportBtn');
+      await wait(100);
+      expect(s, '백업하면 점이 사라짐', (await page.$eval('#tabbar [data-tab="settings"]', (el) => el.dataset.alert)) === 'false');
+      expect(s, '스크립트 오류 없음(유도)', errors.length === 0, errors.join(' | '));
+      await context.close();
+    }
+    {
+      // 아이폰이 자동 삭제 방지를 받아 주지 않을 때
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, () => {
+        navigator.storage.persisted = async () => false;
+        navigator.storage.persist = async () => false;
+      }] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      await wait(60);
+      await openBackup(page);
+      expect(s, '방지가 안 되면 숨기지 않고 알림', (await text(page, '#persistLine')).includes('허용하지 않았어요') && await visible(page, '#persistLine'));
+      await context.close();
+    }
+    {
+      // 7일 알림
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', realNudge: true, init: [asApp, fakeShare] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await page.evaluate(() => {
+        localStorage.setItem('imjang-map:listings', JSON.stringify({ schemaVersion: 1, data: { items: [{ id: 'a', name: '약국', lat: null, lng: null, createdAt: '2026-01-01T00:00:00.000Z' }] } }));
+        const old = new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString();
+        localStorage.setItem('imjang-map:backup-meta', JSON.stringify({ schemaVersion: 1, data: { lastBackupAt: null, dirtySince: old } }));
+      });
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      expect(s, '7일 넘게 백업 안 하면 알림', await visible(page, '#backupNudge') && await inView(page, '#nudgeGo'));
+      await shot(page, 'w-nudge');
+      await page.click('#nudgeGo');
+      expect(s, '알림에서 백업 화면으로 감', await visible(page, '#backupScreen') && !(await visible(page, '#backupNudge')));
+      await page.click('#exportBtn');
+      await wait(100);
+      await page.click('#backupClose');
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      expect(s, '백업하면 알림이 사라짐', !(await visible(page, '#backupNudge')));
+      await context.close();
+    }
   });
 
   // I. 홈 화면 설정: 크롬이 manifest를 제대로 읽는지와 아이콘 응답 (아이폰 동작의 증거는 아님)

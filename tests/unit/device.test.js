@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isStandalone, openPlace, parseAppVersion } from '../../js/lib/device.js';
+import { isAppleMobile, isStandalone, openPlace, parseAppVersion } from '../../js/lib/device.js';
 
 const UA = {
   iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
@@ -58,4 +58,11 @@ test('안드로이드·PC 브라우저는 other', () => {
 test('받은 화면에서 버전을 읽는다', () => {
   assert.equal(parseAppVersion('<meta name="app-version" content="0.3.0-1105a">'), '0.3.0-1105a');
   assert.equal(parseAppVersion('오류 화면'), '');
+});
+
+test('아이폰·터치 되는 아이패드만 애플 모바일로 친다', () => {
+  assert.equal(isAppleMobile(UA.iphone, 5), true);
+  assert.equal(isAppleMobile(UA.ipadDesktop, 5), true);
+  assert.equal(isAppleMobile(UA.ipadDesktop, 0), false);
+  assert.equal(isAppleMobile(UA.androidPhone, 5), false);
 });
