@@ -416,7 +416,7 @@ button.set-row { width: 100%; padding: 0; border: 0; background: none; color: va
   background: var(--surface);
   font-size: 16px;
 }
-.modal-actions { display: flex; justify-content: flex-end; gap: 20px; }
+.modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 20px; }
 .place-hint { padding: 10px 12px; font-size: 13px; color: var(--ink-3); }
 .cat-dot { display: inline-block; flex: none; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; vertical-align: 0; }
 .chip {
@@ -493,7 +493,7 @@ button.set-row { width: 100%; padding: 0; border: 0; background: none; color: va
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 66px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 56px + 68px); /* 탭 줄 + 내 위치 버튼 위. 카카오 로고 자리를 비웁니다. */
   z-index: 46;
   display: grid;
   gap: 8px;

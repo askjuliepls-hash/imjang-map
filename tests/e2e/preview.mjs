@@ -992,7 +992,7 @@ try {
         ['잘린 내용', JSON.stringify({ app: 'imjang-map', schemaVersion: 1, count: 5, listings: [] }), '내용이 맞지 않아요'],
       ]) {
         await pickFile(page, content);
-        const msg = await text(page, '#backupMsg');
+        const msg = await text(page, '#importMsg');
         expect(s, `${what}: 이유가 보이고 묻지 않음`, msg.includes(word) && msg.includes('그대로예요') && !(await visible(page, '#modal')), msg);
         expect(s, `${what}: 저장값이 그대로`, (await page.evaluate(() => localStorage.getItem('imjang-map:listings'))) === before);
       }
@@ -1014,8 +1014,10 @@ try {
       await pickFile(page, backupText);
       await page.click('#modalYes');
       await wait(60);
-      expect(s, '바꾸기를 누르면 매물과 분류가 돌아옴', (await stored(page)).length === 2 && (await page.$$('.mock-marker')).length >= 1 && (await text(page, '#backupMsg')).includes('2개'));
-      expect(s, '되돌리기가 보임', await visible(page, '#undoImport'));
+      expect(s, '바꾸기를 누르면 매물과 분류가 돌아옴', (await stored(page)).length === 2 && (await page.$$('.mock-marker')).length >= 1 && (await text(page, '#importMsg')).includes('2개'));
+      // 재발 방지(2026-11-05): 같은 안내가 토스트로 또 떠서 글자를 가리고, 되돌리기가 화면 밖에 있던 문제
+      expect(s, '되살린 결과와 되돌리기가 화면 안에 보임', await inViewSoon(page, '#undoImport') && await inView(page, '#importMsg'));
+      expect(s, '백업 화면에서는 토스트를 겹쳐 띄우지 않음', !(await visible(page, '#toast')));
       await shot(page, 'w-imported');
       await page.click('#undoImport');
       await page.click('#modalYes');
@@ -1139,6 +1141,11 @@ try {
       await page.click('#saveListing');
       await wait(80);
       expect(s, '3건 쌓이면 알림', await visible(page, '#backupNudge') && (await text(page, '#nudgeText')).includes('3건') && await inView(page, '#nudgeGo'));
+      const nudgeClear = await page.evaluate(() => {
+        const stage = document.querySelector('.stage').getBoundingClientRect();
+        return document.getElementById('backupNudge').getBoundingClientRect().bottom <= stage.bottom - 40;
+      });
+      expect(s, '백업 알림이 카카오 로고 자리를 가리지 않음', nudgeClear);
       await shot(page, 'w-nudge-3');
       await page.click('#nudgeLater');
       await goTab(page, 'settings');

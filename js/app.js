@@ -811,9 +811,10 @@ function closeForm() {
 // 확인 창: 화면 어디를 보고 있든 가운데에 뜹니다.
 let modalYes = null;
 
-function askConfirm(text, yesLabel, noLabel, onYes) {
+function askConfirm(text, yesLabel, noLabel, onYes, { recommend = false } = {}) {
   $('modalText').textContent = text;
   $('modalYes').textContent = yesLabel;
+  $('modalYes').className = recommend ? 'fill-btn' : 'text-btn danger';
   $('modalNo').textContent = noLabel;
   modalYes = onYes;
   $('modal').hidden = false;
@@ -1255,8 +1256,9 @@ function renderBackupInfo() {
   $('backupWhen').dataset.alert = String(pending > 0);
   // 백업 안 한 변경이 있으면 설정 탭에 점을 찍어 어느 화면에서든 보이게 합니다.
   document.querySelector('#tabbar [data-tab="settings"]').dataset.alert = String(pending > 0);
-  const later = pending > 0 ? ` 그 뒤 변경 ${pending}건은 폰에만 있어요.` : '';
-  $('backupLast').textContent = last ? `마지막 백업: ${last}.${later}` : `아직 백업한 적이 없어요.${later}`;
+  $('backupLast').textContent = last
+    ? `마지막 백업: ${last}.${pending > 0 ? ` 그 뒤 변경 ${pending}건은 폰에만 있어요.` : ''}`
+    : `아직 백업한 적이 없어요.${pending > 0 ? ` 변경 ${pending}건이 폰에만 있어요.` : ''}`;
   $('persistLine').hidden = persistGranted === null;
   $('persistLine').textContent = persistGranted
     ? '자동 삭제 방지: 켜짐'
@@ -1270,11 +1272,20 @@ function renderBackupInfo() {
   if (has) $('undoImport').textContent = `가져오기 전으로 되돌리기 (${snap.data.listings.length}개)`;
 }
 
-function backupSay(text, tone = 'info') {
-  const el = $('backupMsg');
+// 안내는 한 곳에만 보여 줍니다. 백업 화면이 닫혀 있으면(빈 목록에서 가져오기) 토스트로 알립니다.
+function backupSay(text, tone = 'info', where = 'backupMsg') {
+  if ($('backupScreen').hidden) {
+    toast(text, tone === 'fail' ? 'fail' : 'ok');
+    return;
+  }
+  $('backupMsg').hidden = true;
+  $('importMsg').hidden = true;
+  const el = $(where);
   el.dataset.tone = tone;
   el.textContent = text;
   el.hidden = false;
+  // 결과와 되돌리기 버튼이 화면 밖이면 보이게 옮깁니다.
+  (where === 'importMsg' && !$('undoImport').hidden ? $('undoImport') : el).scrollIntoView({ block: 'nearest' });
 }
 
 function exported() {
@@ -1372,14 +1383,12 @@ function applyImport(r) {
   // 교체 전 내용을 먼저 남깁니다. 여기서 실패하면 교체하지 않습니다.
   const snap = store.write('before-import', { listings: items, categories, at: new Date().toISOString() });
   if (!snap.ok) {
-    backupSay(saveErrorMessage(snap.reason, snap.detail), 'fail');
-    toast(saveErrorMessage(snap.reason, snap.detail), 'fail');
+    backupSay(saveErrorMessage(snap.reason, snap.detail), 'fail', 'importMsg');
     return;
   }
   const done = replaceAll(r.listings, r.categories);
   if (!done.ok) {
-    backupSay(saveErrorMessage(done.reason, done.detail), 'fail');
-    toast(saveErrorMessage(done.reason, done.detail), 'fail');
+    backupSay(saveErrorMessage(done.reason, done.detail), 'fail', 'importMsg');
     return;
   }
   if (itemsUnreadable) {
@@ -1393,9 +1402,9 @@ function applyImport(r) {
   backupMeta.dirtySince = null;
   backupMeta.pending = 0;
   saveBackupMeta();
-  const msg = `매물 ${r.listings.length}개, 분류 ${r.categories.length}개를 가져왔어요. 잘못 골랐으면 '되돌리기'를 눌러 주세요.`;
-  backupSay(msg, 'ok');
-  toast(`매물 ${r.listings.length}개를 가져왔어요.`);
+  backupSay($('backupScreen').hidden
+    ? `매물 ${r.listings.length}개를 가져왔어요.`
+    : `매물 ${r.listings.length}개, 분류 ${r.categories.length}개를 가져왔어요. 잘못 골랐으면 '되돌리기'를 눌러 주세요.`, 'ok', 'importMsg');
 }
 
 async function onImportPicked(ev) {
@@ -1405,9 +1414,7 @@ async function onImportPicked(ev) {
     if (!file) return;
     const r = await readBackupFile(file);
     if (!r.ok) {
-      const msg = importErrorMessage(r.reason, r.detail);
-      backupSay(msg, 'fail');
-      toast(msg, 'fail');
+      backupSay(importErrorMessage(r.reason, r.detail), 'fail', 'importMsg');
       return;
     }
     if (items.length === 0 && categories.length === 0 && !itemsUnreadable) {
@@ -1422,9 +1429,7 @@ async function onImportPicked(ev) {
     ];
     askConfirm(lines.join('\n'), '바꾸기', '취소', () => applyImport(r));
   } catch (e) {
-    const msg = importErrorMessage('read-failed', e?.name || String(e));
-    backupSay(msg, 'fail');
-    toast(msg, 'fail');
+    backupSay(importErrorMessage('read-failed', e?.name || String(e)), 'fail', 'importMsg');
   } finally {
     input.value = ''; // 같은 파일을 다시 고를 수 있게 비웁니다.
   }
@@ -1436,11 +1441,11 @@ function onUndoImport() {
   askConfirm(`가져오기 전 내용(매물 ${snap.data.listings.length}개)으로 되돌릴까요?`, '되돌리기', '취소', () => {
     const done = replaceAll(snap.data.listings, snap.data.categories || []);
     if (!done.ok) {
-      backupSay(saveErrorMessage(done.reason, done.detail), 'fail');
+      backupSay(saveErrorMessage(done.reason, done.detail), 'fail', 'importMsg');
       return;
     }
     markChanged(); // 되돌린 내용은 파일에 없을 수 있어요.
-    backupSay('가져오기 전 내용으로 되돌렸어요.', 'ok');
+    backupSay('가져오기 전 내용으로 되돌렸어요.', 'ok', 'importMsg');
   });
 }
 
@@ -1460,7 +1465,9 @@ function checkReminder() {
 function openBackupScreen() {
   $('backupNudge').hidden = true;
   setTab('settings');
+  $('toast').hidden = true;
   $('backupMsg').hidden = true;
+  $('importMsg').hidden = true;
   renderBackupInfo();
   $('backupScreen').hidden = false;
 }
@@ -1476,6 +1483,7 @@ function afterSaveNudge() {
       '지금 백업하기',
       '나중에',
       openBackupScreen,
+      { recommend: true },
     );
     return;
   }
