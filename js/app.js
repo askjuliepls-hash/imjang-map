@@ -2,6 +2,7 @@
 import { KAKAO_JS_KEY } from './config.js';
 import { isStandalone, openPlace } from './lib/device.js';
 import { createStore } from './lib/store.js';
+import { rankPlaces, formatDistance } from './lib/places.js';
 import {
   FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint,
   detailGroups, regionFromAddress, createListingStore, makeListingId,
@@ -143,14 +144,38 @@ function moveMapTo(lat, lng) {
   map.panTo(pos);
 }
 
+// 카카오 검색은 한 번에 45건까지만 줍니다. 전국 순위만 받으면 내 근처 약국이 빠질 수 있어서,
+// 전체 순위(모든 쪽)와 지도 근처 순위를 함께 받아 합칩니다.
 function searchPlaces(q, done) {
-  const places = new kakao.maps.services.Places();
   const S = kakao.maps.services.Status;
-  places.keywordSearch(q, (data, status) => {
-    if (status === S.OK) done({ ok: true, items: data.slice(0, 5) });
-    else if (status === S.ZERO_RESULT) done({ ok: true, items: [] });
-    else done({ ok: false });
-  }, { size: 5 });
+  const c = map?.getCenter();
+  const center = c ? { lat: c.getLat(), lng: c.getLng() } : null;
+  const got = [];
+  let waiting = 0;
+  let failed = false;
+  const finish = () => {
+    waiting -= 1;
+    if (waiting > 0) return;
+    if (failed && got.length === 0) done({ ok: false });
+    else done({ ok: true, items: rankPlaces(got, q, center) });
+  };
+  const ask = (options, allPages) => {
+    waiting += 1;
+    new kakao.maps.services.Places().keywordSearch(q, (data, status, pagination) => {
+      if (status === S.OK) {
+        got.push(...data);
+        if (allPages && pagination?.hasNextPage) {
+          pagination.nextPage();
+          return;
+        }
+      } else if (status !== S.ZERO_RESULT) {
+        failed = true;
+      }
+      finish();
+    }, options);
+  };
+  ask({ size: 15 }, true);
+  if (c) ask({ size: 15, location: c, sort: kakao.maps.services.SortBy.DISTANCE }, false);
 }
 
 function placeButton(p, onPick) {
@@ -159,11 +184,20 @@ function placeButton(p, onPick) {
   const name = document.createElement('strong');
   name.textContent = p.place_name;
   const addr = document.createElement('span');
-  addr.textContent = p.road_address_name || p.address_name || '';
+  const far = formatDistance(p.distance);
+  const where = p.road_address_name || p.address_name || '';
+  addr.textContent = far ? `${far} · ${where}` : where;
   b.append(name, addr);
   b.addEventListener('click', () => onPick(p));
   const li = document.createElement('li');
   li.append(b);
+  return li;
+}
+
+function placeHint() {
+  const li = document.createElement('li');
+  li.className = 'place-hint';
+  li.textContent = "못 찾으면 '성남 가짜약국'처럼 지역을 같이 적어 보세요.";
   return li;
 }
 
@@ -200,6 +234,8 @@ function onSearch(ev) {
         ul.hidden = true;
       }));
     }
+    ul.append(placeHint());
+    ul.scrollTop = 0;
     ul.hidden = false;
   });
 }
@@ -379,6 +415,44 @@ function renderDraftLocation() {
   $('locClear').hidden = !on;
 }
 
+// 좌표를 주소로 바꿉니다. 도로명이 있으면 도로명을, 없으면 지번을 씁니다.
+function lookupAddress(lat, lng, done) {
+  if (!kakao) {
+    done(null);
+    return;
+  }
+  new kakao.maps.services.Geocoder().coord2Address(lng, lat, (data, status) => {
+    if (status !== kakao.maps.services.Status.OK || !data?.[0]) {
+      done(null);
+      return;
+    }
+    done({ road: data[0].road_address?.address_name || '', jibun: data[0].address?.address_name || '' });
+  });
+}
+
+// 주소 칸을 채우고, 지역이 비어 있거나 전에 자동으로 넣은 값이면 함께 바꿉니다.
+let autoRegion = null;
+
+function applyAddress(road, jibun) {
+  $('f-address').value = road || jibun || '';
+  const next = regionFromAddress(jibun || road);
+  const region = $('f-region');
+  if (next && (!region.value.trim() || region.value === autoRegion)) {
+    region.value = next;
+    autoRegion = next;
+  }
+  formDirty = true;
+}
+
+function fillAddressFromCoord(lat, lng) {
+  lookupAddress(lat, lng, (r) => {
+    // 그사이 다른 곳을 찍었으면 늦게 온 답은 버립니다.
+    if (draftLocation?.lat !== lat || draftLocation?.lng !== lng) return;
+    if (r) applyAddress(r.road, r.jibun);
+    else $('locState').textContent = '위치는 찍었지만 주소를 찾지 못했어요. 주소 칸에 직접 적어 주세요.';
+  });
+}
+
 function setDraftLocation(lat, lng, label = '') {
   draftLocation = { lat, lng, label };
   formDirty = true;
@@ -399,13 +473,14 @@ function openForm(item = null) {
     }
   }
   form.elements.locationMemo.value = item?.locationMemo ?? '';
+  form.elements.address.value = item?.address ?? '';
+  autoRegion = null;
   draftLocation = item && isLocated(item) ? { lat: item.lat, lng: item.lng, label: '위치를 찍었어요.' } : null;
   renderDraftLocation();
   $('locResults').hidden = true;
   $('locQ').value = '';
   $('formMsg').hidden = true;
   $('nameError').hidden = true;
-  $('discardBar').hidden = true;
   formDirty = false;
   $('detailScreen').hidden = true;
   $('formScreen').hidden = false;
@@ -416,10 +491,25 @@ function closeForm() {
   $('formScreen').hidden = true;
 }
 
+// 확인 창: 화면 어디를 보고 있든 가운데에 뜹니다.
+let modalYes = null;
+
+function askConfirm(text, yesLabel, noLabel, onYes) {
+  $('modalText').textContent = text;
+  $('modalYes').textContent = yesLabel;
+  $('modalNo').textContent = noLabel;
+  modalYes = onYes;
+  $('modal').hidden = false;
+}
+
+function closeModal() {
+  $('modal').hidden = true;
+  modalYes = null;
+}
+
 function onCancelForm() {
   if (formDirty) {
-    $('discardBar').hidden = false;
-    $('discardBar').scrollIntoView({ block: 'nearest' });
+    askConfirm('쓰던 내용이 사라져요. 그만 쓸까요?', '버리기', '계속 쓰기', closeForm);
     return;
   }
   closeForm();
@@ -480,11 +570,12 @@ function onLocSearch() {
     for (const p of r.items) {
       ul.append(placeButton(p, () => {
         setDraftLocation(Number(p.y), Number(p.x), `${p.place_name} 위치를 찍었어요.`);
-        const region = $('f-region');
-        if (!region.value.trim()) region.value = regionFromAddress(p.address_name || p.road_address_name);
+        applyAddress(p.road_address_name, p.address_name);
         ul.hidden = true;
       }));
     }
+    ul.append(placeHint());
+    ul.scrollTop = 0;
     ul.hidden = false;
     ul.scrollIntoView({ block: 'nearest' });
   });
@@ -493,7 +584,10 @@ function onLocSearch() {
 function onLocHere() {
   $('locState').textContent = '위치를 찾는 중이에요. 권한을 물으면 허용해 주세요.';
   getPosition(
-    (c) => setDraftLocation(c.latitude, c.longitude, `현재 위치를 찍었어요. 오차 약 ${Math.round(c.accuracy)}m.`),
+    (c) => {
+      setDraftLocation(c.latitude, c.longitude, `현재 위치를 찍었어요. 오차 약 ${Math.round(c.accuracy)}m.`);
+      fillAddressFromCoord(c.latitude, c.longitude);
+    },
     (msg) => { $('locState').textContent = msg; },
   );
 }
@@ -502,12 +596,15 @@ function onLocHere() {
 let picking = false;
 let pickPos = null;
 let pickOverlay = null;
+let pickAddress = null;
 
 function onLocMap() {
   if (!map) return;
   picking = true;
   $('toast').hidden = true;
   pickPos = draftLocation ? { lat: draftLocation.lat, lng: draftLocation.lng } : null;
+  pickAddress = null;
+  $('pickText').textContent = '지도에서 약국 위치를 눌러 주세요.';
   $('formScreen').hidden = true;
   $('pickBar').hidden = false;
   $('sheet').hidden = true;
@@ -539,15 +636,28 @@ function endPick(ok) {
   $('addBtn').hidden = false;
   $('formScreen').hidden = false;
   map.relayout();
-  if (ok && pickPos) setDraftLocation(pickPos.lat, pickPos.lng, '지도에서 위치를 찍었어요.');
+  if (ok && pickPos) {
+    setDraftLocation(pickPos.lat, pickPos.lng, '지도에서 위치를 찍었어요.');
+    if (pickAddress) applyAddress(pickAddress.road, pickAddress.jibun);
+    else fillAddressFromCoord(pickPos.lat, pickPos.lng);
+  }
 }
 
 function onMapClick(mouseEvent) {
   $('results').hidden = true;
   if (!picking) return;
   const ll = mouseEvent.latLng;
-  pickPos = { lat: ll.getLat(), lng: ll.getLng() };
+  const here = { lat: ll.getLat(), lng: ll.getLng() };
+  pickPos = here;
+  pickAddress = null;
   drawPick();
+  $('pickText').textContent = '주소를 찾는 중이에요.';
+  // 어디를 눌렀는지 바로 알 수 있게 주소를 보여 줍니다.
+  lookupAddress(here.lat, here.lng, (r) => {
+    if (pickPos !== here) return;
+    pickAddress = r;
+    $('pickText').textContent = r ? (r.road || r.jibun) : '주소를 찾지 못했어요. 이 위치로 해도 돼요.';
+  });
 }
 
 // ---------- 상세 ----------
@@ -592,8 +702,6 @@ function openDetail(id) {
   memo.textContent = item.locationMemo ? `${loc} 위치 메모: ${item.locationMemo}` : loc;
   host.prepend(memo);
   $('mapViewBtn').hidden = !(isLocated(item) && map);
-  $('deleteConfirm').hidden = true;
-  $('deleteBtn').hidden = false;
   $('detailMsg').hidden = true;
   $('detailScreen').hidden = false;
   $('detailScreen').scrollTop = 0;
@@ -648,8 +756,12 @@ $('locate').addEventListener('click', onLocate);
 $('sheetToggle').addEventListener('click', onToggleSheet);
 $('addBtn').addEventListener('click', () => openForm());
 $('formClose').addEventListener('click', onCancelForm);
-$('discardYes').addEventListener('click', closeForm);
-$('discardNo').addEventListener('click', () => { $('discardBar').hidden = true; });
+$('modalNo').addEventListener('click', closeModal);
+$('modalYes').addEventListener('click', () => {
+  const run = modalYes;
+  closeModal();
+  run?.();
+});
 $('listingForm').addEventListener('submit', onSaveListing);
 $('listingForm').addEventListener('input', () => { formDirty = true; });
 $('locSearchBtn').addEventListener('click', onLocSearch);
@@ -663,6 +775,7 @@ $('locHereBtn').addEventListener('click', onLocHere);
 $('locMapBtn').addEventListener('click', onLocMap);
 $('locClear').addEventListener('click', () => {
   draftLocation = null;
+  $('f-address').value = '';
   formDirty = true;
   renderDraftLocation();
 });
@@ -676,15 +789,8 @@ $('mapViewBtn').addEventListener('click', () => {
   if (item) moveMapTo(item.lat, item.lng);
 });
 $('deleteBtn').addEventListener('click', () => {
-  $('deleteBtn').hidden = true;
-  $('deleteConfirm').hidden = false;
-  $('deleteConfirm').scrollIntoView({ block: 'nearest' });
+  askConfirm('이 매물을 삭제할까요? 되돌릴 수 없어요.', '삭제', '취소', onDeleteConfirmed);
 });
-$('deleteNo').addEventListener('click', () => {
-  $('deleteConfirm').hidden = true;
-  $('deleteBtn').hidden = false;
-});
-$('deleteYes').addEventListener('click', onDeleteConfirmed);
 window.addEventListener('resize', () => map?.relayout());
 
 buildForm();

@@ -253,12 +253,12 @@ try {
     expect(s, '수정해도 한 개이고 등록일이 그대로', after.length === 1 && after[0].premium === '20000' && after[0].createdAt <= after[0].updatedAt);
     await page2.click('#list button');
     await page2.click('#deleteBtn');
-    expect(s, '삭제는 한 번 더 확인함', await visible(page2, '#deleteConfirm') && (await stored(page2)).length === 1);
-    await page2.click('#deleteNo');
-    expect(s, '취소하면 그대로', (await stored(page2)).length === 1);
+    expect(s, '삭제는 창으로 한 번 더 확인함', await visible(page2, '#modal') && await inView(page2, '#modalYes') && (await stored(page2)).length === 1);
+    await page2.click('#modalNo');
+    expect(s, '취소하면 그대로', !(await visible(page2, '#modal')) && (await stored(page2)).length === 1);
     await page2.click('#deleteBtn');
     await shot(page2, 'b-delete-confirm');
-    await page2.click('#deleteYes');
+    await page2.click('#modalYes');
     await wait(50);
     expect(s, '삭제하면 사라짐', (await stored(page2)).length === 0 && await visible(page2, '#empty'));
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
@@ -282,6 +282,7 @@ try {
     await shot(page, 'c-form-search');
     await page.click('#locResults button');
     expect(s, '장소를 고르면 위치가 찍힘', (await text(page, '#locState')).includes('테스트 장소 A'));
+    expect(s, '장소를 고르면 주소가 채워짐', (await page.$eval('#f-address', (el) => el.value)) === '테스트시 테스트구 가짜로 1');
     await page.click('#saveListing');
     await wait(80);
     let list = await stored(page);
@@ -293,6 +294,7 @@ try {
     await page.click('#locHereBtn');
     await wait(150);
     expect(s, '현재 위치가 찍힘', (await text(page, '#locState')).includes('오차 약 24m'));
+    expect(s, '현재 위치의 주소가 채워짐', (await page.$eval('#f-address', (el) => el.value)) === '경기도 성남시 중원구 가짜대로 10' && (await page.$eval('#f-region', (el) => el.value)) === '경기 성남시 중원구');
     await page.click('#saveListing');
     await wait(80);
     list = await stored(page);
@@ -306,13 +308,17 @@ try {
     await page.mouse.click(120, 200);
     await wait(60);
     expect(s, '지도를 누르면 표시되고 확인 가능', await page.$eval('#pickOk', (el) => !el.disabled) && !!(await page.$('#pickDot')));
+    expect(s, '지도를 누르면 그 주소가 바로 보임', (await text(page, '#pickText')).includes('가짜대로 10'));
     await shot(page, 'c-pick');
     await page.click('#pickOk');
     expect(s, '확인하면 입력하던 양식으로 돌아옴', await visible(page, '#formScreen') && (await page.$eval('#f-name', (el) => el.value)).includes('지도에서'));
+    // 재발 방지(2026-11-05): 지도에서 찍으면 좌표만 남고 주소가 매물 정보에 안 들어가던 문제
+    expect(s, '지도에서 고른 주소와 지역이 양식에 들어감', (await page.$eval('#f-address', (el) => el.value)) === '경기도 성남시 중원구 가짜대로 10' && (await page.$eval('#f-region', (el) => el.value)) === '경기 성남시 중원구');
     await page.click('#saveListing');
     await wait(80);
     list = await stored(page);
     expect(s, '지도에서 고른 위치 저장', list.length === 3 && list.every((x) => Number.isFinite(x.lat)));
+    expect(s, '지도에서 고른 주소도 저장', list[2].address === '경기도 성남시 중원구 가짜대로 10');
     expect(s, '핀이 세 개', (await page.$$('.mock-marker')).length === 3);
     await shot(page, 'c-pins');
     // 핀 → 상세
@@ -329,6 +335,43 @@ try {
     expect(s, '위치를 지우면 핀이 사라지고 목록에 남음', (await page.$$('.mock-marker')).length === 2 && (await stored(page)).length === 3);
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
+  });
+
+  // G. 장소 검색: 전국 순위 뒤쪽이나 근처 결과도 찾을 수 있어야 합니다.
+  await scenario('G 장소 검색', async (s) => {
+    const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
+    await page.goto(BASE, { waitUntil: 'load' });
+    await appReady(page);
+    await page.waitForSelector('#locSearchBtn:not([disabled])', { timeout: 3000 });
+    await page.type('#q', '많은장소');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('#results:not([hidden]) button', { timeout: 3000 });
+    // 재발 방지(2026-11-05): 결과를 5개로 잘라 '가짜약국' 중 성남 지점이 안 보이던 문제
+    const count = await page.$$eval('#results button', (b) => b.length);
+    expect(s, '결과를 자르지 않고 모두 보여 줌', count > 15, String(count));
+    const first = await page.$eval('#results button', (el) => el.textContent);
+    expect(s, '지도에 가까운 맞는 결과가 맨 위', first.includes('찾는곳') && first.includes('km') || first.includes('찾는곳') && first.includes('m ·'), first);
+    const calls = await page.evaluate(() => window.__searchCalls.map((o) => !!o.location));
+    expect(s, '전체 순위와 지도 근처를 함께 찾음', calls.includes(true) && calls.includes(false), JSON.stringify(calls));
+    const scroll = await page.$eval('#results', (el) => {
+      el.scrollTop = 300;
+      const moved = el.scrollTop > 0;
+      el.scrollTop = 0;
+      return { moved, can: el.scrollHeight > el.clientHeight, touch: getComputedStyle(el).touchAction };
+    });
+    expect(s, '결과 목록이 스크롤됨', scroll.moved && scroll.can && scroll.touch === 'pan-y', JSON.stringify(scroll));
+    expect(s, '못 찾을 때의 안내가 있음', (await text(page, '#results')).includes('지역을 같이'));
+    await shot(page, 'g-search-many');
+    expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
+    await context.close();
+    const second = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, () => { window.__mockNoAddress = true; }] }, s);
+    await second.page.goto(BASE, { waitUntil: 'load' });
+    await appReady(second.page);
+    await second.page.click('#addBtn');
+    await second.page.click('#locHereBtn');
+    await wait(150);
+    expect(s, '주소를 못 찾아도 위치는 찍히고 직접 적으라고 안내', (await text(second.page, '#locState')).includes('직접 적어'));
+    await second.context.close();
   });
 
   // D. 저장 실패와 읽기 실패: 데이터를 잃으면 안 됩니다.
@@ -369,11 +412,13 @@ try {
       await page.click('#addBtn');
       await page.type('#f-name', '쓰던 내용');
       await page.click('#formClose');
-      expect(s, '입력이 있으면 한 번 더 물음', await visible(page, '#formScreen') && await visible(page, '#discardBar'));
-      await page.click('#discardNo');
-      expect(s, '계속 쓰기를 누르면 내용이 그대로', (await page.$eval('#f-name', (el) => el.value)) === '쓰던 내용');
+      // 재발 방지(2026-11-05): 취소 경고가 양식 맨 아래에 떠서 안 보이고 오류처럼 느껴지던 문제
+      expect(s, '입력이 있으면 창으로 물음(스크롤 없이 보임)', await visible(page, '#formScreen') && await visible(page, '#modal') && await inView(page, '#modalYes') && await inView(page, '#modalNo'));
+      await shot(page, 'd-discard-modal');
+      await page.click('#modalNo');
+      expect(s, '계속 쓰기를 누르면 내용이 그대로', !(await visible(page, '#modal')) && (await page.$eval('#f-name', (el) => el.value)) === '쓰던 내용');
       await page.click('#formClose');
-      await page.click('#discardYes');
+      await page.click('#modalYes');
       expect(s, '버리기를 누르면 닫힘', !(await visible(page, '#formScreen')) && (await stored(page)).length === 0);
       await context.close();
     }
@@ -523,8 +568,11 @@ try {
     await layoutExpect(page, s);
     await wait(3600); // 저장 안내가 닫힌 뒤 캡처
     await shot(page, 'j-main');
+    // 재발 방지(2026-11-05): 홈 화면 앱에서 윗줄이 iOS 흐림 효과와 겹치던 문제 (실제 효과는 폰에서 확인)
+    expect(s, '홈 화면 앱에서 윗줄을 내려 둠', await page.$eval('.brand', (el) => el.getBoundingClientRect().top >= 40));
     await page.click('#addBtn');
     await shot(page, 'j-form');
+    expect(s, '양식 윗줄도 내려 둠', await page.$eval('#formClose', (el) => el.getBoundingClientRect().top >= 30));
     await page.$eval('#saveListing', (el) => el.scrollIntoView({ block: 'end' }));
     expect(s, '저장 버튼이 가려지지 않음', await inView(page, '#saveListing'));
     await page.click('#formClose');

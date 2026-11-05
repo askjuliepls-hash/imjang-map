@@ -87,8 +87,10 @@ test('상세 화면은 입력한 칸만 보여 준다', () => {
   assert.equal(groups[1].rows[0].value, '33㎡ (약 10.0평)');
 });
 
-test('주소의 앞 두 낱말이 지역이다', () => {
+test('주소에서 시·구까지가 지역이다', () => {
   assert.equal(regionFromAddress('서울 중구 가짜대로 1'), '서울 중구');
+  assert.equal(regionFromAddress('경기 성남시 중원구 가짜동 3'), '경기 성남시 중원구');
+  assert.equal(regionFromAddress('경기 평택시 가짜동 4-4'), '경기 평택시');
   assert.equal(regionFromAddress(''), '');
 });
 
@@ -118,4 +120,13 @@ test('읽기 전에는 막지 않지만 공간 부족은 그대로 알린다', (
   const ls = createListingStore(createStore(() => s));
   ls.load();
   assert.equal(ls.save([{ id: 'a' }]).reason, 'quota');
+});
+
+test('주소를 저장한다', () => {
+  assert.equal(cleanForm({ name: '약국', address: ' 서울 중구 가짜대로 1 ' }).data.address, '서울 중구 가짜대로 1');
+});
+
+test('상세 화면에 주소가 보인다', () => {
+  const groups = detailGroups({ name: 'A', address: '서울 중구 가짜대로 1' });
+  assert.deepEqual(groups[0].rows[0], { label: '주소', value: '서울 중구 가짜대로 1', long: false });
 });

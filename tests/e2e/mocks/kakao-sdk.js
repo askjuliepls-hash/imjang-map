@@ -43,6 +43,7 @@
   Map.prototype.panTo = function (c) { this.center = c; this._redraw(); };
   Map.prototype.setLevel = function (l) { this.level = l; };
   Map.prototype.relayout = function () {};
+  Map.prototype.getCenter = function () { return this.center; };
   Map.prototype._items = null;
   Map.prototype._add = function (item) { (this._items = this._items || []).push(item); };
   Map.prototype._redraw = function () { (this._items || []).forEach(function (i) { i._draw(); }); };
@@ -93,9 +94,30 @@
 
   var Status = { OK: 'OK', ZERO_RESULT: 'ZERO_RESULT', ERROR: 'ERROR' };
   function Places() {}
-  Places.prototype.keywordSearch = function (q, cb) {
+  function Geocoder() {}
+  Geocoder.prototype.coord2Address = function (lng, lat, cb) {
+    setTimeout(function () {
+      if (window.__mockNoAddress) { cb([], Status.ZERO_RESULT); return; }
+      cb([{ road_address: { address_name: '경기도 성남시 중원구 가짜대로 10' }, address: { address_name: '경기 성남시 중원구 가짜동 3' } }], Status.OK);
+    }, 20);
+  };
+  Places.prototype.keywordSearch = function (q, cb, options) {
+    var self = this;
+    (window.__searchCalls = window.__searchCalls || []).push(options);
     setTimeout(function () {
       if (/없는장소/.test(q)) { cb([], Status.ZERO_RESULT, { totalCount: 0 }); return; }
+      if (/많은장소/.test(q)) {
+        // 전국 순위 3쪽. 찾는 곳은 마지막 쪽에 있고, 지도 근처 검색에도 나옵니다.
+        self.page = (self.page || 0) + 1;
+        var page = options.location ? 1 : self.page;
+        var list = [];
+        for (var i = 0; i < 15; i++) {
+          list.push({ id: 'p' + page + '-' + i, place_name: '많은장소 먼곳', address_name: '먼시 먼구 ' + i, road_address_name: '', x: String(120 + i), y: '30' });
+        }
+        if (page === 3 || options.location) list[0] = { id: 'wanted', place_name: '많은장소 찾는곳', address_name: '경기 성남시 중원구 가짜동 3', road_address_name: '', x: '126.98', y: '37.57' };
+        cb(list, Status.OK, { totalCount: 45, hasNextPage: !options.location && page < 3, nextPage: function () { self.keywordSearch(q, cb, options); } });
+        return;
+      }
       cb([
         { place_name: '테스트 장소 A', road_address_name: '테스트시 테스트구 가짜로 1', address_name: '', x: '126.9800', y: '37.5672' },
         { place_name: '테스트 장소 B', road_address_name: '', address_name: '테스트시 테스트구 가짜동 2', x: '126.9760', y: '37.5650' },
@@ -107,7 +129,7 @@
     maps: {
       load: function (cb) { setTimeout(cb, 10); },
       LatLng: LatLng, Map: Map, Marker: Marker, CustomOverlay: CustomOverlay, event: event,
-      services: { Places: Places, Status: Status },
+      services: { Places: Places, Status: Status, Geocoder: Geocoder, SortBy: { ACCURACY: 'ACCURACY', DISTANCE: 'DISTANCE' } },
     },
   };
 })();

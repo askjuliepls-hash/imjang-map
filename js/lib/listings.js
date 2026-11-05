@@ -42,6 +42,7 @@ export function cleanForm(raw) {
   const data = {};
   for (const f of ALL_FIELDS) data[f.key] = String(raw[f.key] ?? '').trim();
   data.locationMemo = String(raw.locationMemo ?? '').trim();
+  data.address = String(raw.address ?? '').trim();
   const located = Number.isFinite(raw.lat) && Number.isFinite(raw.lng);
   data.lat = located ? raw.lat : null;
   data.lng = located ? raw.lng : null;
@@ -99,9 +100,10 @@ export function fieldHint(kind, value) {
 
 // 상세 화면: 입력한 칸만 묶음별로 보여 줍니다.
 export function detailGroups(item) {
+  const fields = (g) => (g.title === '기본' ? [...g.fields, { key: 'address', label: '주소' }] : g.fields);
   return FIELD_GROUPS.map((g) => ({
     title: g.title,
-    rows: g.fields
+    rows: fields(g)
       .filter((f) => f.key !== 'name' && item[f.key])
       .map((f) => {
         const v = item[f.key];
@@ -115,9 +117,12 @@ export function detailGroups(item) {
   })).filter((g) => g.rows.length > 0);
 }
 
-// 장소 주소의 앞 두 낱말을 지역으로 씁니다. 예: '서울 중구 가짜대로 1' → '서울 중구'
+// 주소에서 시·구까지를 지역으로 씁니다.
+// 예: '서울 중구 가짜대로 1' → '서울 중구', '경기 성남시 중원구 가짜동 3' → '경기 성남시 중원구'
 export function regionFromAddress(address) {
-  return String(address ?? '').trim().split(/\s+/).slice(0, 2).join(' ');
+  const w = String(address ?? '').trim().split(/\s+/);
+  const n = /시$/.test(w[1] || '') && /구$/.test(w[2] || '') ? 3 : 2;
+  return w.slice(0, n).join(' ');
 }
 
 // 저장 묶음. 읽기에 실패하면 쓰지 않습니다. 읽지 못한 데이터를 빈 목록으로 덮어쓰면 모두 잃기 때문입니다.

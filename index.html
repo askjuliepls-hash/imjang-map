@@ -5,21 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1b1d23" media="(prefers-color-scheme: dark)">
-<meta name="app-version" content="0.2.0-1105a">
+<meta name="app-version" content="0.2.0-1105b">
 <title>약국 임장노트</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="stylesheet" href="./fonts/pretendard/pretendardvariable-dynamic-subset.css">
-<link rel="stylesheet" href="./css/app.css?v=0.2.0-1105a">
+<link rel="stylesheet" href="./css/app.css?v=0.2.0-1105b">
+<script>
+// 아이폰 홈 화면 앱은 위쪽 흐림 효과가 앱 글자와 겹쳐서 윗부분을 띄웁니다(css/app.css의 --top-gap).
+if (window.navigator.standalone === true) document.documentElement.classList.add('ios-app');
+</script>
 <script type="importmap">
 {
   "imports": {
-    "./js/config.js": "./js/config.js?v=0.2.0-1105a",
-    "./js/lib/device.js": "./js/lib/device.js?v=0.2.0-1105a",
-    "./js/lib/format.js": "./js/lib/format.js?v=0.2.0-1105a",
-    "./js/lib/listings.js": "./js/lib/listings.js?v=0.2.0-1105a",
-    "./js/lib/messages.js": "./js/lib/messages.js?v=0.2.0-1105a",
-    "./js/lib/store.js": "./js/lib/store.js?v=0.2.0-1105a"
+    "./js/config.js": "./js/config.js?v=0.2.0-1105b",
+    "./js/lib/device.js": "./js/lib/device.js?v=0.2.0-1105b",
+    "./js/lib/format.js": "./js/lib/format.js?v=0.2.0-1105b",
+    "./js/lib/listings.js": "./js/lib/listings.js?v=0.2.0-1105b",
+    "./js/lib/messages.js": "./js/lib/messages.js?v=0.2.0-1105b",
+    "./js/lib/places.js": "./js/lib/places.js?v=0.2.0-1105b",
+    "./js/lib/store.js": "./js/lib/store.js?v=0.2.0-1105b"
   }
 }
 </script>
@@ -54,7 +59,7 @@
     <button id="addBtn" class="fill-btn add-btn" type="button">+ 매물 추가</button>
     <p id="toast" class="form-msg top-msg" role="status" hidden></p>
     <div id="pickBar" class="pick-bar" hidden>
-      <p>지도에서 약국 위치를 눌러 주세요.</p>
+      <p id="pickText">지도에서 약국 위치를 눌러 주세요.</p>
       <div class="pick-actions">
         <button class="text-btn" id="pickCancel" type="button">취소</button>
         <button class="fill-btn" id="pickOk" type="button" disabled>이 위치로 하기</button>
@@ -105,18 +110,15 @@
           <button class="text-btn" id="locHereBtn" type="button">현재 위치로</button>
         </div>
         <div class="field">
+          <label for="f-address">주소</label>
+          <input id="f-address" name="address" type="text" autocomplete="off" placeholder="위치를 찍으면 자동으로 채워져요">
+        </div>
+        <div class="field">
           <label for="f-locationMemo">위치 메모</label>
           <input id="f-locationMemo" name="locationMemo" type="text" autocomplete="off" placeholder="예: 병원 정문 건너편 1층">
         </div>
       </div>
       <div class="form-end">
-        <div class="confirm" id="discardBar" hidden>
-          <p>쓰던 내용이 사라져요. 그만 쓸까요?</p>
-          <div class="pick-actions">
-            <button class="text-btn" id="discardNo" type="button">계속 쓰기</button>
-            <button class="text-btn danger" id="discardYes" type="button">버리기</button>
-          </div>
-        </div>
         <p class="form-msg" id="formMsg" role="alert" hidden></p>
         <button class="btn primary" id="saveListing" type="submit">저장하기</button>
       </div>
@@ -137,13 +139,17 @@
         <p class="form-msg" id="detailMsg" role="alert" hidden></p>
         <button class="btn primary" id="editBtn" type="button">수정하기</button>
         <button class="text-btn" id="deleteBtn" type="button">삭제하기</button>
-        <div class="confirm" id="deleteConfirm" hidden>
-          <p>이 매물을 삭제할까요? 되돌릴 수 없어요.</p>
-          <div class="pick-actions">
-            <button class="text-btn" id="deleteNo" type="button">취소</button>
-            <button class="text-btn danger" id="deleteYes" type="button">삭제</button>
-          </div>
-        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 확인 창 -->
+  <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalText" hidden>
+    <div class="modal-box">
+      <p id="modalText"></p>
+      <div class="modal-actions">
+        <button class="text-btn" id="modalNo" type="button"></button>
+        <button class="text-btn danger" id="modalYes" type="button"></button>
       </div>
     </div>
   </div>
@@ -196,6 +202,6 @@
   };
 })();
 </script>
-<script type="module" src="./js/app.js?v=0.2.0-1105a"></script>
+<script type="module" src="./js/app.js?v=0.2.0-1105b"></script>
 </body>
 </html>

@@ -8,6 +8,7 @@
  * 색 대비: 본문·보조 글씨는 4.5:1 이상. #F96949는 흰 바탕의 작은 글자로 쓰면 대비가 약 2.9:1이라 글자색으로 쓰지 않습니다.
  */
 :root {
+  --top-gap: 0px;
   --bg: #f2f4f6;
   --surface: #ffffff;
   --fill: #f2f4f6;
@@ -36,6 +37,8 @@
   --r-lg: 16px;
   color-scheme: light;
 }
+/* 아이폰 홈 화면 앱: 상태 표시줄 아래로 약 47pt까지 흐림 효과가 내려와 글자와 겹칩니다(폰 캡처로 확인). */
+.ios-app { --top-gap: 30px; }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #101217;
@@ -64,7 +67,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
+html, body { height: 100%; margin: 0; overscroll-behavior: none; }
 body {
   background: var(--bg);
   color: var(--ink);
@@ -103,7 +106,7 @@ p { margin: 0; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: calc(env(safe-area-inset-top, 0px) + 12px) max(20px, env(safe-area-inset-right, 0px)) 12px max(20px, env(safe-area-inset-left, 0px));
+  padding: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 12px) max(20px, env(safe-area-inset-right, 0px)) 12px max(20px, env(safe-area-inset-left, 0px));
   background: var(--surface);
 }
 .brand { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
@@ -169,6 +172,8 @@ p { margin: 0; }
 .search input:disabled, .search button:disabled { color: var(--hint); cursor: default; }
 
 .results {
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   position: absolute;
   z-index: 6;
   top: 72px;
@@ -353,6 +358,26 @@ p { margin: 0; }
   background: var(--surface);
   box-shadow: var(--float-shadow);
 }
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / .4);
+}
+.modal-box {
+  display: grid;
+  gap: 12px;
+  width: min(320px, 100%);
+  padding: 20px 20px 10px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  font-size: 16px;
+}
+.modal-actions { display: flex; justify-content: flex-end; gap: 20px; }
+.place-hint { padding: 10px 12px; font-size: 13px; color: var(--ink-3); }
 .pick-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 
 /* 내 매물 목록 */
@@ -389,7 +414,7 @@ p { margin: 0; }
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 8px;
-  padding: calc(env(safe-area-inset-top, 0px) + 6px) 16px 6px;
+  padding: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 6px) 16px 6px;
 }
 .screen-head h1 { margin: 0; font-size: 17px; font-weight: 700; }
 .screen-head .text-btn:first-child { justify-self: start; }
@@ -431,7 +456,7 @@ p { margin: 0; }
 .location .text-btn { justify-self: start; color: var(--ink-2); padding: 0; }
 .loc-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .loc-actions { display: flex; gap: 20px; }
-.loc-results { list-style: none; margin: 0; padding: 0; display: grid; }
+.loc-results { list-style: none; margin: 0; padding: 0; display: grid; max-height: 320px; overflow: auto; overscroll-behavior: contain; touch-action: pan-y; }
 .loc-results button { display: grid; gap: 2px; width: 100%; min-height: 48px; padding: 8px 0; border: 0; background: none; color: var(--ink); text-align: left; }
 .loc-results strong { font-size: 15px; font-weight: 600; }
 .loc-results span { font-size: 13px; color: var(--ink-3); }
