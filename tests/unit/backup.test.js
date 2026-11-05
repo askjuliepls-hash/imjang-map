@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   backupFileName, buildBackup, chooseExportPath, parseBackup, readBackupFile, needsReminder, formatBackupTime,
+  backupPrint, countChanges,
   BACKUP_SCHEMA, MAX_BYTES,
 } from '../../js/lib/backup.js';
 
@@ -116,6 +117,40 @@ test('매물 1000개 백업도 가져오기 한도 안에 든다', () => {
   const listings = Array.from({ length: 1000 }, (_, i) => ({ ...fat, id: String(i) }));
   const { text } = buildBackup({ listings, categories: [], now: NOW });
   assert.ok(new TextEncoder().encode(text).length < MAX_BYTES);
+});
+
+test('백업 뒤 바뀐 건수는 누른 횟수가 아니라 내용을 비교해 구한다', () => {
+  const A = { id: 'a', name: '가', review: '', lat: null, lng: null, createdAt: 'x', updatedAt: 't1' };
+  const B = { id: 'b', name: '나', createdAt: 'y', updatedAt: 't1' };
+  const C = [{ id: 'c', name: '후보', color: '#F96949' }];
+  const base = backupPrint({ listings: [A, B], categories: C });
+  const count = (listings, categories = C) => countChanges(base, { listings, categories });
+  assert.equal(count([A, B]), 0, '그대로');
+  assert.equal(count([B, A]), 0, '순서만 다름');
+  assert.equal(count([A, B, { id: 'n', name: '새' }]), 1, '추가');
+  assert.equal(count([A]), 1, '삭제');
+  assert.equal(count([{ ...A, name: '다' }, B]), 1, '수정');
+  assert.equal(count([{ ...A, name: '다' }, { id: 'n', name: '새' }]), 3, '수정 + 추가 + 삭제');
+  assert.equal(count([{ ...A, updatedAt: 't2' }, B]), 0, '저장 시각만 다름');
+  assert.equal(count([{ ...A, rent: '' }, B]), 0, '빈 칸이 늘어남');
+  assert.equal(count([{ name: '가', id: 'a', createdAt: 'x' }, B]), 0, '칸 순서만 다름');
+  assert.equal(count([A, B], []), 1, '분류만 지움');
+  assert.equal(count([A, B], [{ ...C[0], name: '유력' }]), 1, '분류 이름만 바꿈');
+  assert.equal(count([{ ...A, categoryId: 'n' }, B], []), 1, '매물과 분류가 같이 바뀌어도 매물 수만큼');
+  assert.equal(count([], []), 0, '매물이 없으면 내보낼 것도 없음');
+});
+
+test('백업한 적이 없으면 매물 수만큼이고 분류는 더하지 않는다', () => {
+  const listings = Array.from({ length: 9 }, (_, i) => ({ id: String(i), name: `약국 ${i}` }));
+  assert.equal(countChanges(null, { listings, categories: [{ id: 'c', name: '후보', color: '#F96949' }] }), 9);
+  assert.equal(countChanges(null, { listings: [], categories: [{ id: 'c', name: '후보', color: '#F96949' }] }), 0);
+});
+
+test('지문은 글자 하나만 달라도, 글자 순서만 달라도 다르다', () => {
+  const print = (name) => backupPrint({ listings: [{ id: 'a', name }], categories: [] }).listings.a;
+  assert.equal(new Set(Array.from({ length: 2000 }, (_, i) => print(`약국 ${i}`))).size, 2000);
+  assert.notEqual(print('가나'), print('나가'));
+  assert.equal(print('가나'), print('가나'));
 });
 
 test('백업 시각 표시', () => {

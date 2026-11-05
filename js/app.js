@@ -4,7 +4,7 @@ import { isAppleMobile, isStandalone, openPlace, parseAppVersion } from './lib/d
 import { createStore } from './lib/store.js';
 import { rankPlaces, formatDistance } from './lib/places.js';
 import {
-  buildBackup, chooseExportPath, readBackupFile, needsReminder, formatBackupTime, REMIND_DAYS,
+  buildBackup, chooseExportPath, readBackupFile, needsReminder, formatBackupTime, REMIND_DAYS, backupPrint, countChanges,
 } from './lib/backup.js';
 import {
   PALETTE, MAX_NAME, checkName, upsertCategory, removeCategory, clearCategoryFrom, categoryOf, pinColor, nextColor,
@@ -566,7 +566,7 @@ function persistItems(next) {
   const r = listingStore.save(next);
   if (!r.ok) return r;
   items = next;
-  markChanged();
+  compareWithBackup();
   renderList();
   renderPins();
   renderCatManage();
@@ -1056,7 +1056,7 @@ function persistCategories(next) {
   const r = categoryStore.save(next);
   if (!r.ok) return r;
   categories = next;
-  markChanged();
+  compareWithBackup();
   renderCategoryUi();
   return r;
 }
@@ -1220,8 +1220,9 @@ function onSaveCategory() {
 }
 
 // ---------- 백업 ----------
-// 기록: lastBackupAt 마지막 내보내기, dirtySince 그 뒤로 처음 바뀐 때
-let backupMeta = { lastBackupAt: null, dirtySince: null, pending: 0, introSeen: false };
+// 기록: lastBackupAt 마지막 내보내기, backedUp 그때 내용의 지문, dirtySince 그 내용과 달라진 때
+let backupMeta = { lastBackupAt: null, dirtySince: null, backedUp: null, introSeen: false };
+let pendingChanges = 0; // 마지막 백업과 달라진 건수. 저장하지 않고 늘 내용을 비교해 구합니다.
 let persistGranted = null; // 아이폰이 자동 삭제 방지 요청을 받아들였는지. null은 모름
 let itemsUnreadable = false; // 저장된 매물을 읽지 못한 상태
 let shareRefused = 0;
@@ -1231,9 +1232,23 @@ function saveBackupMeta() {
   renderBackupInfo();
 }
 
-function markChanged() {
-  backupMeta.pending = (backupMeta.pending || 0) + 1;
-  backupMeta.dirtySince ||= new Date().toISOString();
+function compareWithBackup() {
+  if (!itemsUnreadable) { // 읽지 못하는 동안은 비교할 수 없습니다.
+    pendingChanges = countChanges(backupMeta.backedUp, { listings: items, categories });
+    const since = pendingChanges > 0 ? backupMeta.dirtySince || new Date().toISOString() : null;
+    if (since !== backupMeta.dirtySince) {
+      backupMeta.dirtySince = since;
+      store.write('backup-meta', backupMeta);
+    }
+  }
+  renderBackupInfo();
+}
+
+// 지금 내용이 파일과 같아졌을 때 부릅니다.
+function markBackedUp() {
+  backupMeta.backedUp = backupPrint({ listings: items, categories });
+  backupMeta.dirtySince = null;
+  pendingChanges = 0;
   saveBackupMeta();
 }
 
@@ -1250,14 +1265,13 @@ async function askPersist() {
 
 function renderBackupInfo() {
   const last = backupMeta.lastBackupAt ? formatBackupTime(backupMeta.lastBackupAt) : '';
-  const pending = backupMeta.dirtySince ? backupMeta.pending || 0 : 0;
-  $('backupWhen').textContent = pending > 0 ? `백업 전 ${pending}건` : (last ? last.slice(0, 10) : '안 함');
-  $('backupWhen').dataset.alert = String(pending > 0);
+  $('backupWhen').textContent = pendingChanges > 0 ? `백업 전 ${pendingChanges}건` : (last ? last.slice(0, 10) : '안 함');
+  $('backupWhen').dataset.alert = String(pendingChanges > 0);
   // 백업 안 한 변경이 있으면 설정 탭에 점을 찍어 어느 화면에서든 보이게 합니다.
-  document.querySelector('#tabbar [data-tab="settings"]').dataset.alert = String(pending > 0);
+  document.querySelector('#tabbar [data-tab="settings"]').dataset.alert = String(pendingChanges > 0);
   $('backupLast').textContent = last
-    ? `마지막 백업: ${last}.${pending > 0 ? ` 그 뒤 변경 ${pending}건은 폰에만 있어요.` : ''}`
-    : `아직 백업한 적이 없어요.${pending > 0 ? ` 변경 ${pending}건이 폰에만 있어요.` : ''}`;
+    ? `마지막 백업: ${last}.${pendingChanges > 0 ? ` 그 뒤 변경 ${pendingChanges}건은 폰에만 있어요.` : ''}`
+    : `아직 백업한 적이 없어요.${pendingChanges > 0 ? ` 변경 ${pendingChanges}건이 폰에만 있어요.` : ''}`;
   $('persistLine').hidden = persistGranted === null;
   $('persistLine').textContent = persistGranted
     ? '자동 삭제 방지: 켜짐'
@@ -1289,9 +1303,7 @@ function backupSay(text, tone = 'info', where = 'backupMsg') {
 
 function exported() {
   backupMeta.lastBackupAt = new Date().toISOString();
-  backupMeta.dirtySince = null;
-  backupMeta.pending = 0;
-  saveBackupMeta();
+  markBackedUp();
   $('backupNudge').hidden = true;
 }
 
@@ -1376,8 +1388,8 @@ function replaceAll(listings, cats) {
 function applyImport(r) {
   // 교체 전 내용과 백업 기록을 먼저 남깁니다. 여기서 실패하면 교체하지 않습니다.
   const prevSnap = store.read('before-import');
-  const { lastBackupAt, dirtySince, pending } = backupMeta;
-  const snap = store.write('before-import', { listings: items, categories, at: new Date().toISOString(), backup: { lastBackupAt, dirtySince, pending } });
+  const { lastBackupAt, dirtySince, backedUp } = backupMeta;
+  const snap = store.write('before-import', { listings: items, categories, at: new Date().toISOString(), backup: { lastBackupAt, dirtySince, backedUp } });
   if (!snap.ok) {
     backupSay(saveErrorMessage(snap.reason, snap.detail), 'fail', 'importMsg');
     return;
@@ -1406,10 +1418,7 @@ function applyImport(r) {
     $('toast').hidden = true;
     window.__hideReload?.();
   }
-  // 지금 내용이 파일과 같아졌으니 백업 안 한 변경이 없습니다.
-  backupMeta.dirtySince = null;
-  backupMeta.pending = 0;
-  saveBackupMeta();
+  markBackedUp();
   backupSay($('backupScreen').hidden
     ? `매물 ${r.listings.length}개를 가져왔어요.`
     : `매물 ${r.listings.length}개, 분류 ${r.categories.length}개를 가져왔어요. 잘못 골랐으면 '되돌리기'를 눌러 주세요.`, 'ok', 'importMsg');
@@ -1446,8 +1455,8 @@ async function onImportPicked(ev) {
 function onUndoImport() {
   const snap = store.read('before-import');
   if (!snap.ok || !snap.data?.listings) return;
-  // 가져올 때 건수를 0으로 돌리므로, 지금 건수는 가져온 뒤에 바꾼 것들입니다.
-  const lost = backupMeta.pending > 0 ? `\n가져온 뒤 바꾼 ${backupMeta.pending}건은 사라지고 되살릴 수 없어요.` : '';
+  // 가져온 내용이 비교 기준이 되므로, 지금 건수는 가져온 뒤에 바꾼 것들입니다.
+  const lost = pendingChanges > 0 ? `\n가져온 뒤 바꾼 ${pendingChanges}건은 사라지고 되살릴 수 없어요.` : '';
   askConfirm(`가져오기 전 내용(매물 ${snap.data.listings.length}개)으로 되돌릴까요?${lost}`, '되돌리기', '취소', () => {
     const done = replaceAll(snap.data.listings, snap.data.categories || []);
     if (!done.ok) {
@@ -1455,15 +1464,14 @@ function onUndoImport() {
       return;
     }
     store.write('before-import', null); // 되돌리기는 한 번만 됩니다.
+    // 가져온 뒤 백업한 적이 없으면 비교 기준도 가져오기 전으로 돌립니다. 그 뒤 백업했다면 그 파일과 비교합니다.
     const before = snap.data.backup;
-    if (before && before.lastBackupAt === backupMeta.lastBackupAt) {
-      // 가져온 뒤 백업한 적이 없으면, 백업 안 한 변경도 가져오기 전 그대로입니다.
+    if (before && before.backedUp !== undefined && before.lastBackupAt === backupMeta.lastBackupAt) {
+      backupMeta.backedUp = before.backedUp;
       backupMeta.dirtySince = before.dirtySince;
-      backupMeta.pending = before.pending;
       saveBackupMeta();
-    } else {
-      markChanged(); // 그 뒤에 만든 파일에는 되돌린 내용이 없으니 바뀐 것으로 칩니다.
     }
+    compareWithBackup();
     backupSay('가져오기 전 내용으로 되돌렸어요.', 'ok', 'importMsg');
   });
 }
@@ -1471,7 +1479,7 @@ function onUndoImport() {
 function checkReminder() {
   if (PLACE !== 'app') return;
   if (!needsReminder({ count: items.length, dirtySince: backupMeta.dirtySince, lastBackupAt: backupMeta.lastBackupAt, now: new Date() })) return;
-  $('nudgeText').textContent = `${REMIND_DAYS}일 넘게 백업하지 않았고, 바뀐 내용이 ${backupMeta.pending}건 있어요. 폰을 잃거나 바꾸면 되살릴 수 없어요.`;
+  $('nudgeText').textContent = `${REMIND_DAYS}일 넘게 백업하지 않았고, 바뀐 내용이 ${pendingChanges}건 있어요. 폰을 잃거나 바꾸면 되살릴 수 없어요.`;
   $('backupNudge').hidden = false;
 }
 
@@ -1487,12 +1495,13 @@ function openBackupScreen() {
 
 // 저장할 때마다 백업을 권합니다. 처음 한 번은 왜 필요한지도 알립니다.
 function announceSaved() {
-  if (PLACE !== 'app') {
+  // 고치지 않고 저장했거나 원래대로 고쳤으면 백업할 것이 없습니다.
+  if (PLACE !== 'app' || pendingChanges === 0) {
     toast('저장했어요.');
     return;
   }
   const why = backupMeta.introSeen
-    ? `백업하지 않은 변경이 ${backupMeta.pending}건 있어요.`
+    ? `백업하지 않은 변경이 ${pendingChanges}건 있어요.`
     : '이 앱은 이 폰에만 저장돼요. 폰을 잃거나 바꾸면 되살릴 수 없어요. 백업 파일을 카톡 나와의 채팅으로 보내 두세요.';
   backupMeta.introSeen = true;
   saveBackupMeta();
@@ -1669,23 +1678,15 @@ buildForm();
 loadItems();
 const loadedCats = categoryStore.load();
 if (loadedCats.ok) categories = loadedCats.items;
-// 폰 시험을 처음부터 다시 하려고 백업 기록만 한 번 지웁니다(2026-11-05 사용자 요청). 매물과 분류는 건드리지 않습니다. 다음 배포에서 뺍니다.
-// 되돌리기 자료는 지금 내용과 같을 때만 지웁니다. 다르면 그 안에만 있는 매물이 있을 수 있어요.
-if (!itemsUnreadable && loadedCats.ok && !store.read('retest-1105h').data && store.write('retest-1105h', true).ok) {
-  store.write('backup-meta', null);
-  const kept = store.read('before-import');
-  if (kept.ok && JSON.stringify(kept.data?.listings) === JSON.stringify(items) && JSON.stringify(kept.data?.categories || []) === JSON.stringify(categories)) {
-    store.write('before-import', null);
-  }
-}
 const savedMeta = store.read('backup-meta');
 if (savedMeta.ok && savedMeta.data) backupMeta = { ...backupMeta, ...savedMeta.data };
-else if (items.length > 0) { // 백업 기능이 생기기 전부터 있던 매물
-  backupMeta.pending = items.length;
-  backupMeta.dirtySince = new Date().toISOString();
+delete backupMeta.pending; // 예전에 누른 횟수를 세던 값
+// 지문을 남기기 전에 백업했고 그 뒤 바뀐 게 없으면, 지금 내용이 그 백업입니다.
+if (!backupMeta.backedUp && backupMeta.lastBackupAt && !backupMeta.dirtySince && !itemsUnreadable && loadedCats.ok) {
+  backupMeta.backedUp = backupPrint({ listings: items, categories });
   saveBackupMeta();
 }
-renderBackupInfo();
+compareWithBackup();
 checkReminder();
 askPersist();
 showPlaceNotice();

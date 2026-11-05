@@ -7,6 +7,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { backupPrint } from '../../js/lib/backup.js';
 
 const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const OUT = resolve(process.argv[2] || join(ROOT, 'tests/e2e/shots'));
@@ -54,7 +55,7 @@ const mocks = {
 const quietNudge = () => {
   try {
     const k = 'imjang-map:backup-meta';
-    if (!localStorage.getItem(k)) localStorage.setItem(k, JSON.stringify({ schemaVersion: 1, data: { lastBackupAt: null, dirtySince: null, pending: 0, introSeen: true } }));
+    if (!localStorage.getItem(k)) localStorage.setItem(k, JSON.stringify({ schemaVersion: 1, data: { lastBackupAt: null, dirtySince: null, backedUp: null, introSeen: true } }));
   } catch { /* about:blank */ }
   document.addEventListener('DOMContentLoaded', () => {
     const s = document.createElement('style');
@@ -1188,70 +1189,137 @@ try {
       await context.close();
     }
     {
-      // 폰 시험 다시 하기: 백업 기록만 한 번 지웁니다. 다음 배포에서 코드와 함께 뺍니다.
+      // 폰에서 하는 순서 그대로: 저장 → 첫 안내 → 백업 → 가져오기 → 되돌리기
       const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', realNudge: true, init: [asApp, fakeShare] }, s);
+      const isDate = async () => /^\d{4}\.\d{2}\.\d{2}$/.test(await text(page, '#backupWhen'));
       await page.goto(BASE, { waitUntil: 'load' });
       await page.evaluate(() => {
         const put = (k, data) => localStorage.setItem(`imjang-map:${k}`, JSON.stringify({ schemaVersion: 1, data }));
-        localStorage.removeItem('imjang-map:retest-1105h');
         put('listings', { items: [{ id: 'a', name: '남아 있어야 할 약국', lat: null, lng: null, categoryId: 'c', createdAt: '2026-01-01T00:00:00.000Z' }] });
         put('categories', { items: [{ id: 'c', name: '후보', color: '#F96949' }] });
-        put('backup-meta', { lastBackupAt: '2026-11-05T01:00:00.000Z', dirtySince: null, pending: 0, introSeen: true });
-        put('before-import', { listings: [{ id: 'a', name: '남아 있어야 할 약국', lat: null, lng: null, categoryId: 'c', createdAt: '2026-01-01T00:00:00.000Z' }], categories: [{ id: 'c', name: '후보', color: '#F96949' }], at: '2026-11-05T02:00:00.000Z' });
       });
       await page.reload({ waitUntil: 'load' });
       await appReady(page);
       await goTab(page, 'settings');
-      expect(s, '시험 다시 하기: 백업 전 상태로 돌아감', (await text(page, '#backupWhen')) === '백업 전 1건');
-      expect(s, '시험 다시 하기: 매물과 분류는 그대로', (await stored(page)).length === 1 && (await page.evaluate(() => localStorage.getItem('imjang-map:categories'))).includes('후보'));
+      expect(s, '처음 순서: 백업 기능 전부터 있던 매물 수만큼 백업 전', (await text(page, '#backupWhen')) === '백업 전 1건');
       await page.click('#backupOpen');
-      expect(s, '시험 다시 하기: 백업 기록과 되돌리기가 없어짐', (await text(page, '#backupLast')).includes('아직 백업한 적이 없어요') && !(await visible(page, '#undoImport')));
-      // 폰에서 다시 할 순서 그대로: 저장 → 첫 안내 → 백업 → 가져오기 → 되돌리기
+      expect(s, '처음 순서: 백업한 적이 없다고 보임', (await text(page, '#backupLast')).includes('아직 백업한 적이 없어요') && !(await visible(page, '#undoImport')));
       await page.click('#backupClose');
       await goTab(page, 'map');
       await fillAndSave(page, { name: '시험 약국' });
-      expect(s, '시험 다시 하기: 첫 저장 안내가 다시 뜸', (await text(page, '#modalText')).includes('이 폰에만'));
+      expect(s, '처음 순서: 첫 저장 안내가 뜸', (await text(page, '#modalText')).includes('이 폰에만'));
       await page.click('#modalYes');
       await wait(60);
       await page.click('#exportBtn');
       await wait(120);
-      const retestFile = (await lastShared(page)).text;
-      await pickFile(page, retestFile);
+      await pickFile(page, (await lastShared(page)).text);
       await page.click('#modalYes');
       await wait(60);
       await page.click('#undoImport');
-      expect(s, '시험 다시 하기: 백업 직후 되돌리면 사라질 변경이 없다고 나옴', !(await text(page, '#modalText')).includes('사라지고'));
+      expect(s, '처음 순서: 백업 직후 되돌리면 사라질 변경이 없다고 나옴', !(await text(page, '#modalText')).includes('사라지고'));
       await page.click('#modalYes');
       await wait(60);
-      expect(s, '시험 다시 하기: 순서대로 하면 끝에 백업 날짜가 보임', /^\d{4}\.\d{2}\.\d{2}$/.test(await text(page, '#backupWhen')));
+      expect(s, '처음 순서: 끝에 백업 날짜가 보임', await isDate());
       await page.reload({ waitUntil: 'load' });
       await appReady(page);
-      expect(s, '시험 다시 하기: 한 번만 지우고 그 뒤 백업 날짜는 남음', /^\d{4}\.\d{2}\.\d{2}$/.test(await text(page, '#backupWhen')));
-      // 되돌리기 자료 안에만 있는 매물은 지우지 않습니다.
-      await page.evaluate(() => {
-        const put = (k, data) => localStorage.setItem(`imjang-map:${k}`, JSON.stringify({ schemaVersion: 1, data }));
-        localStorage.removeItem('imjang-map:retest-1105h');
-        put('before-import', { listings: [{ id: 'only', name: '여기에만 있는 약국', lat: null, lng: null }], categories: [] });
-      });
-      await page.reload({ waitUntil: 'load' });
-      await appReady(page);
-      expect(s, '시험 다시 하기: 지금 내용과 다른 되돌리기 자료는 남김', (await page.evaluate(() => localStorage.getItem('imjang-map:before-import'))).includes('여기에만 있는 약국'));
-      // 분류를 읽지 못하면 지우지 않고 기다립니다.
-      await page.evaluate(() => {
-        localStorage.removeItem('imjang-map:retest-1105h');
-        localStorage.setItem('imjang-map:categories', '{broken');
-      });
-      await page.reload({ waitUntil: 'load' });
-      await appReady(page);
-      expect(s, '시험 다시 하기: 분류를 읽지 못하면 지우지 않음', (await page.evaluate(() => localStorage.getItem('imjang-map:retest-1105h'))) === null);
-      expect(s, '스크립트 오류 없음(시험 다시 하기)', errors.length === 0, errors.join(' | '));
+      expect(s, '처음 순서: 다시 열어도 백업 날짜', await isDate());
+      expect(s, '스크립트 오류 없음(처음 순서)', errors.length === 0, errors.join(' | '));
       await context.close();
     }
     {
-      // 되돌리기와 백업 기록. 표시(retest-1105h)만 다음 배포에서 뺍니다.
+      // 재발 방지(2026-11-05, 폰 확인으로 발견): 9개에서 하나 추가했다 지우면 '백업 전 11건'으로 뜨던 문제.
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', realNudge: true, init: [asApp, fakeShare] }, s);
+      const when = () => text(page, '#backupWhen');
+      const isDate = async () => /^\d{4}\.\d{2}\.\d{2}$/.test(await when());
+      const dotOff = async () => (await page.$eval('#tabbar [data-tab="settings"]', (el) => el.dataset.alert)) === 'false';
+      await page.goto(BASE, { waitUntil: 'load' });
+      await page.evaluate(() => {
+        const put = (k, data) => localStorage.setItem(`imjang-map:${k}`, JSON.stringify({ schemaVersion: 1, data }));
+        const items = Array.from({ length: 9 }, (_, i) => ({ id: `p${i}`, name: `약국 ${i}`, lat: null, lng: null, categoryId: i === 0 ? 'd' : null, createdAt: `2026-01-0${i + 1}T00:00:00.000Z` }));
+        put('listings', { items });
+        put('categories', { items: [{ id: 'c', name: '안 쓰는 분류', color: '#F96949' }, { id: 'd', name: '쓰는 분류', color: '#2F80ED' }] });
+        put('backup-meta', { lastBackupAt: null, dirtySince: '2026-11-05T01:00:00.000Z', pending: 11, introSeen: true }); // 사용자의 폰 상태
+      });
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      expect(s, '내용 비교: 예전 횟수 11은 버리고 매물 9개만큼 백업 전', (await when()) === '백업 전 9건');
+      await fillAndSave(page, { name: '잠깐 추가한 약국' });
+      expect(s, '내용 비교: 하나 추가하면 10건', (await text(page, '#modalText')).includes('10건'));
+      await page.click('#modalNo');
+      await openFirst(page);
+      await page.click('#deleteBtn');
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '내용 비교: 추가했다 지우면 다시 9건', (await when()) === '백업 전 9건' && (await stored(page)).length === 9);
+      await goTab(page, 'settings');
+      await page.click('#backupOpen');
+      await page.click('#exportBtn');
+      await wait(120);
+      await page.click('#backupClose');
+      expect(s, '내용 비교: 백업하면 건수와 점이 없어짐', await isDate() && await dotOff());
+      await goTab(page, 'map');
+      await fillAndSave(page, { name: '또 잠깐 추가한 약국' });
+      expect(s, '내용 비교: 백업 뒤 추가하면 1건', (await text(page, '#modalText')).includes('1건'));
+      await page.click('#modalNo');
+      await openFirst(page);
+      await page.click('#deleteBtn');
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '내용 비교: 백업 뒤 추가했다 지우면 변경 없음', await isDate() && await dotOff());
+      await openFirst(page);
+      await page.click('#editBtn');
+      await page.type('#f-review', '메모');
+      await page.click('#saveListing');
+      await wait(60);
+      expect(s, '내용 비교: 고치면 1건', (await text(page, '#modalText')).includes('1건') && (await when()) === '백업 전 1건');
+      await page.click('#modalNo');
+      await openFirst(page);
+      await page.click('#editBtn');
+      await page.$eval('#f-review', (el) => { el.value = ''; });
+      await page.click('#saveListing');
+      await wait(60);
+      expect(s, '내용 비교: 원래대로 고치면 변경 없고 창 대신 짧은 안내', await isDate() && await dotOff() && !(await visible(page, '#modal')) && await visible(page, '#toast'));
+      await openFirst(page);
+      await page.click('#editBtn');
+      await page.click('#saveListing');
+      await wait(60);
+      expect(s, '내용 비교: 안 고치고 저장하면 창이 안 뜸', await isDate() && !(await visible(page, '#modal')));
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      expect(s, '내용 비교: 다시 열어도 변경 없음', await isDate() && await dotOff());
+      await goTab(page, 'settings');
+      await page.click('#catManage');
+      await page.click('#catList .danger');
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '내용 비교: 안 쓰는 분류를 지우면 1건', (await when()) === '백업 전 1건');
+      await page.click('#catList .danger');
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '내용 비교: 쓰는 분류까지 지워도 그 매물 1건', (await when()) === '백업 전 1건');
+      // 지문이 없던 때 백업한 폰, 그리고 매물을 다 지운 경우
+      await page.evaluate(() => {
+        const put = (k, data) => localStorage.setItem(`imjang-map:${k}`, JSON.stringify({ schemaVersion: 1, data }));
+        put('listings', { items: [{ id: 'a', name: '하나뿐인 약국', lat: null, lng: null, createdAt: '2026-01-01T00:00:00.000Z' }] });
+        put('categories', { items: [] });
+        put('backup-meta', { lastBackupAt: '2026-11-05T01:00:00.000Z', dirtySince: null, pending: 0, introSeen: true });
+      });
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      expect(s, '내용 비교: 지문이 없던 때 백업한 폰은 그대로 백업됨으로 봄', await isDate() && await dotOff());
+      await openFirst(page);
+      await page.click('#deleteBtn');
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '내용 비교: 매물을 다 지우면 내보낼 게 없으니 점이 없음', await dotOff());
+      expect(s, '스크립트 오류 없음(내용 비교)', errors.length === 0, errors.join(' | '));
+      await context.close();
+    }
+    {
+      // 되돌리기와 백업 기록
       const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', realNudge: true, init: [asApp, fakeShare] }, s);
       const OLD_BACKUP = '2026-10-01T01:00:00.000Z';
-      const CLEAN = { lastBackupAt: OLD_BACKUP, dirtySince: null, pending: 0, introSeen: true };
+      const CLEAN = { lastBackupAt: OLD_BACKUP, dirtySince: null, introSeen: true };
       const A = { id: 'a', name: '약국 가', lat: null, lng: null, createdAt: '2026-01-01T00:00:00.000Z' };
       const FILE = JSON.stringify({ app: 'imjang-map', schemaVersion: 1, count: 2, listings: [{ id: 'x', name: '파일 약국 1', lat: null, lng: null }, { id: 'y', name: '파일 약국 2', lat: null, lng: null }], categories: [] });
       const seed = async (state, broken) => {
@@ -1259,7 +1327,6 @@ try {
         await page.evaluate((st, raw) => {
           localStorage.clear();
           const put = (k, data) => localStorage.setItem(`imjang-map:${k}`, JSON.stringify({ schemaVersion: 1, data }));
-          put('retest-1105h', true);
           for (const [k, v] of Object.entries(st)) put(k, v);
           if (raw) localStorage.setItem('imjang-map:listings', '{broken');
         }, state, Boolean(broken));
@@ -1287,15 +1354,19 @@ try {
       };
       const rawListings = () => page.evaluate(() => localStorage.getItem('imjang-map:listings'));
 
-      // 쌓여 있던 건수가 그대로 돌아옴(예전 코드는 1건으로 나옴)
-      await seed({ listings: { items: [A] }, 'backup-meta': { lastBackupAt: OLD_BACKUP, dirtySince: '2026-11-01T01:00:00.000Z', pending: 2, introSeen: true } });
+      // 달라져 있던 건수가 그대로 돌아옴
+      const B = { ...A, id: 'b', name: '약국 나' };
+      await seed({
+        listings: { items: [{ ...A, name: '고친 약국 가' }, B, { ...A, id: 'c', name: '새 약국' }] },
+        'backup-meta': { lastBackupAt: OLD_BACKUP, dirtySince: '2026-11-01T01:00:00.000Z', backedUp: backupPrint({ listings: [A, B], categories: [] }), introSeen: true },
+      });
       await openBackup(page);
       await importFile();
       await page.click('#undoImport');
       expect(s, '되돌리기: 가져온 뒤 바꾼 게 없으면 경고 없음', !(await text(page, '#modalText')).includes('사라지고'));
       await page.click('#modalYes');
       await wait(60);
-      expect(s, '되돌리기: 쌓여 있던 2건이 그대로 돌아옴', (await text(page, '#backupWhen')) === '백업 전 2건' && (await text(page, '#backupLast')).includes('변경 2건'));
+      expect(s, '되돌리기: 달라져 있던 2건이 그대로 돌아옴', (await text(page, '#backupWhen')) === '백업 전 2건' && (await text(page, '#backupLast')).includes('변경 2건'));
       await page.reload({ waitUntil: 'load' });
       await appReady(page);
       expect(s, '되돌리기: 다시 열어도 2건', (await text(page, '#backupWhen')) === '백업 전 2건');
@@ -1315,7 +1386,7 @@ try {
       await page.click('#modalNo');
       expect(s, '되돌리기: 취소하면 그 매물이 그대로', (await rawListings()).includes('가져온 뒤 저장한 약국') && await visible(page, '#undoImport'));
 
-      // 가져온 뒤 백업했으면 백업 날짜는 뒤로 안 가고, 되돌린 내용은 바뀐 것으로 침
+      // 가져온 뒤 백업했으면 백업 날짜는 뒤로 안 가고, 그 파일과 비교함(약국 가 하나 vs 파일 약국 둘)
       await seed({ listings: { items: [A] }, 'backup-meta': CLEAN });
       await openBackup(page);
       await importFile();
@@ -1324,15 +1395,15 @@ try {
       await page.click('#undoImport');
       await page.click('#modalYes');
       await wait(60);
-      expect(s, '되돌리기: 그 뒤 백업했으면 백업 전 1건이고 날짜는 안 돌아감', (await text(page, '#backupWhen')) === '백업 전 1건' && !(await text(page, '#backupLast')).includes('2026.10.01'));
+      expect(s, '되돌리기: 그 뒤 백업했으면 그 파일과 비교하고 날짜는 안 돌아감', (await text(page, '#backupWhen')) === '백업 전 3건' && !(await text(page, '#backupLast')).includes('2026.10.01'));
 
-      // 백업 기록이 없는 옛 되돌리기 자료(1105g)
-      await seed({ listings: { items: [A] }, 'before-import': { listings: [A], categories: [] }, 'backup-meta': CLEAN });
+      // 비교 기준이 없는 옛 되돌리기 자료(1105g·1105h)
+      await seed({ listings: { items: [A] }, 'before-import': { listings: [B], categories: [], backup: { lastBackupAt: OLD_BACKUP, dirtySince: null, pending: 0 } }, 'backup-meta': CLEAN });
       await openBackup(page);
       await page.click('#undoImport');
       await page.click('#modalYes');
       await wait(60);
-      expect(s, '되돌리기: 옛 자료는 바뀐 것으로 침', (await text(page, '#backupWhen')) === '백업 전 1건');
+      expect(s, '되돌리기: 옛 자료도 내용으로 비교함', (await text(page, '#backupWhen')) === '백업 전 2건');
 
       // 저장 공간이 차서 가져오기가 실패하면 되돌리기 자료를 전으로 돌림
       await seed({ listings: { items: [A] }, 'backup-meta': CLEAN });
@@ -1382,16 +1453,16 @@ try {
       const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', realNudge: true, init: [asApp, fakeShare] }, s);
       await page.goto(BASE, { waitUntil: 'load' });
       await page.evaluate(() => {
-        localStorage.setItem('imjang-map:listings', JSON.stringify({ schemaVersion: 1, data: { items: [{ id: 'a', name: '약국', lat: null, lng: null, createdAt: '2026-01-01T00:00:00.000Z' }] } }));
+        localStorage.setItem('imjang-map:listings', JSON.stringify({ schemaVersion: 1, data: { items: [{ id: 'a', name: '약국', lat: null, lng: null, createdAt: '2026-01-01T00:00:00.000Z' }, { id: 'b', name: '약국 둘', lat: null, lng: null, createdAt: '2026-01-02T00:00:00.000Z' }] } }));
         const daysAgo = (n) => new Date(Date.now() - n * 24 * 3600 * 1000).toISOString();
-        localStorage.setItem('imjang-map:backup-meta', JSON.stringify({ schemaVersion: 1, data: { lastBackupAt: daysAgo(10), dirtySince: null, pending: 0, introSeen: true } }));
+        localStorage.setItem('imjang-map:backup-meta', JSON.stringify({ schemaVersion: 1, data: { lastBackupAt: daysAgo(10), dirtySince: null, introSeen: true } }));
       });
       await page.reload({ waitUntil: 'load' });
       await appReady(page);
       expect(s, '7일이 지나도 바꾼 내용이 없으면 알림 없음', !(await visible(page, '#backupNudge')));
       await page.evaluate(() => {
         const daysAgo = (n) => new Date(Date.now() - n * 24 * 3600 * 1000).toISOString();
-        localStorage.setItem('imjang-map:backup-meta', JSON.stringify({ schemaVersion: 1, data: { lastBackupAt: daysAgo(10), dirtySince: daysAgo(1), pending: 2, introSeen: true } }));
+        localStorage.setItem('imjang-map:backup-meta', JSON.stringify({ schemaVersion: 1, data: { lastBackupAt: daysAgo(10), dirtySince: daysAgo(1), introSeen: true } }));
       });
       await page.reload({ waitUntil: 'load' });
       await appReady(page);

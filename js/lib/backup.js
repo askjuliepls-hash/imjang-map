@@ -119,6 +119,47 @@ export function needsReminder({ count, dirtySince, lastBackupAt, now, days = REM
   return Number.isFinite(since) && now.getTime() - since >= days * DAY;
 }
 
+// 몇 번 눌렀는지가 아니라 내용을 마지막 백업과 비교합니다. 매물마다 짧은 지문만 남겨 저장 공간을 거의 쓰지 않습니다.
+function hashText(text) {
+  let a = 0x811c9dc5;
+  let b = 0x9747b28c;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b ^ c, 0x5bd1e995);
+    b ^= b >>> 13;
+  }
+  return (a >>> 0).toString(36) + (b >>> 0).toString(36);
+}
+
+// 저장 시각과 빈 칸은 빼고 봅니다. 고쳤다가 원래대로 돌리면 바뀐 게 없습니다.
+function printOf(value) {
+  const parts = Object.keys(value)
+    .filter((k) => k !== 'updatedAt' && value[k] !== '' && value[k] !== null && value[k] !== undefined)
+    .sort()
+    .map((k) => [k, value[k]]);
+  return hashText(JSON.stringify(parts));
+}
+
+export function backupPrint({ listings, categories }) {
+  return {
+    listings: Object.fromEntries(listings.map((x) => [x.id, printOf(x)])),
+    categories: categories.map(printOf).join(),
+  };
+}
+
+// 마지막 백업과 달라진 매물 수. 매물은 그대로이고 분류만 바뀌었으면 1건입니다.
+export function countChanges(base, { listings, categories }) {
+  if (listings.length === 0) return 0; // 매물이 없으면 내보낼 것도 없습니다.
+  const now = backupPrint({ listings, categories });
+  const was = base?.listings ?? {};
+  const ids = new Set(Object.keys(now.listings));
+  const changed = [...ids].filter((id) => was[id] !== now.listings[id]).length;
+  const removed = Object.keys(was).filter((id) => !ids.has(id)).length;
+  if (changed + removed > 0) return changed + removed;
+  return now.categories === (base?.categories ?? '') ? 0 : 1;
+}
+
 // 화면에 보여 줄 시각. '2026-11-05T05:32:00Z' → '2026.11.05 14:32'(폰의 시간)
 export function formatBackupTime(iso) {
   const d = new Date(iso);
