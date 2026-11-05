@@ -267,6 +267,7 @@ p { margin: 0; }
 .score { flex: none; font-size: 14px; font-weight: 600; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .score[data-done="true"] { color: var(--accent-text); }
 .sheet-body {
+  position: relative; /* 화면 밖 글자(.sr-only)가 문서를 늘리지 않게 스크롤 안에 가둡니다 */
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;

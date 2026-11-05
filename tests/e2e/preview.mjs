@@ -91,22 +91,39 @@ async function layout(page) {
     const clipped = [...document.querySelectorAll('.check .name, .check .msg, .btn, .score, .results strong, .results span, .fab')]
       .filter((el) => el.offsetParent !== null && el.scrollWidth > el.clientWidth + 1)
       .map((el) => `${el.className}:${el.textContent.trim().slice(0, 16)}`);
-    return { overflowX: document.documentElement.scrollWidth > vw + 1, small, clipped };
+    const de = document.documentElement;
+    return { overflowX: de.scrollWidth > vw + 1, overflowY: de.scrollHeight > window.innerHeight + 1, docHeight: de.scrollHeight, small, clipped };
   });
 }
 
 async function layoutExpect(page, scenario) {
   const l = await layout(page);
   expect(scenario, '가로 스크롤 없음', !l.overflowX);
+  // 재발 방지(2026-11-05): 시트 안의 화면 밖 글자가 문서 전체를 늘려 페이지가 통째로 밀리던 문제
+  expect(scenario, '세로 문서 스크롤 없음', !l.overflowY, `문서 높이 ${l.docHeight}`);
   expect(scenario, '입력칸 글씨 16px 이상(아이폰 확대 방지)', l.small.length === 0, l.small.join(', '));
   expect(scenario, '잘린 글자 없음', l.clipped.length === 0, l.clipped.join(' | '));
 }
 
 // 재발 방지(2026-11-05): 로그인·저장 버튼이 점검 목록 아래에 숨어 스크롤해야 보이던 문제
+// 재발 방지(2026-11-05): 창 안에 있어도 시트 스크롤 영역에 잘려 안 보이는 경우까지 잡습니다.
 const inView = (page, sel) => page.$eval(sel, (el) => {
   const r = el.getBoundingClientRect();
-  return r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight;
+  if (r.height <= 0 || r.top < 0 || r.bottom > window.innerHeight) return false;
+  const box = el.closest('.sheet-body');
+  if (!box) return true;
+  const b = box.getBoundingClientRect();
+  return r.top >= b.top && r.bottom <= b.bottom;
 });
+
+// 시나리오 하나가 죽어도 나머지를 돌리고 요약을 남깁니다.
+async function scenario(name, fn) {
+  try {
+    await fn(name);
+  } catch (e) {
+    expect(name, '시나리오가 끝까지 실행됨', false, String(e?.message || e));
+  }
+}
 
 async function shot(page, name) {
   await new Promise((r) => setTimeout(r, 250));
@@ -119,8 +136,7 @@ const browser = await puppeteer.launch({ executablePath: CHROME, headless: true,
 
 try {
   // A. 설정값이 하나도 없는 처음 상태 (빈 설정을 끼움)
-  {
-    const s = 'A 설정 전';
+  await scenario('A 설정 전', async (s) => {
     const { context, page, errors, requests } = await openPage(browser, { kakao: 'block', config: 'empty' }, s);
     await page.goto(BASE, { waitUntil: 'load' });
     expect(s, '지도 점검이 실패로, 이유와 함께 표시', await waitCheck(page, 'map', 'fail'));
@@ -136,11 +152,10 @@ try {
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await shot(page, 'a-unconfigured');
     await context.close();
-  }
+  });
 
-  // B. 모든 연결이 되는 경우 (가짜 지도·가짜 저장소)
-  {
-    const s = 'B 연결됨';
+  // B. 모든 연결이 되는 경우 (가짜 지도)
+  await scenario('B 연결됨', async (s) => {
     const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock' }, s);
     await page.goto(BASE, { waitUntil: 'load' });
     expect(s, '지도 통과', await waitCheck(page, 'map', 'ok'));
@@ -165,11 +180,10 @@ try {
     await shot(page, 'b5-collapsed');
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
-  }
+  });
 
   // C. 카카오가 도메인 미등록으로 거절하는 경우 (503)
-  {
-    const s = 'C 지도 거절';
+  await scenario('C 지도 거절', async (s) => {
     const { context, page, errors } = await openPage(browser, { kakao: '503', config: 'mock' }, s);
     await page.goto(BASE, { waitUntil: 'load' });
     expect(s, '지도 실패', await waitCheck(page, 'map', 'fail'));
@@ -180,7 +194,7 @@ try {
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await shot(page, 'c-map-rejected');
     await context.close();
-  }
+  });
 } finally {
   await browser.close();
   server.close();
