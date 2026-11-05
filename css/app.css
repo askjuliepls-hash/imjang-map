@@ -158,19 +158,25 @@ p { margin: 0; }
 }
 .search input::placeholder { color: var(--hint); }
 .search input::-webkit-search-cancel-button { display: none; }
-.search button {
+.search input:disabled { color: var(--hint); cursor: default; }
+/* 입력 지우기(X): 눌리는 곳은 44px */
+.clear-btn {
   flex: none;
-  height: 40px;
-  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
   border: 0;
-  border-radius: 10px;
+  border-radius: 50%;
   background: none;
-  color: var(--accent-text);
-  font-size: 16px;
-  font-weight: 600;
+  color: var(--ink-3);
 }
-.search button:active { background: var(--fill); }
-.search input:disabled, .search button:disabled { color: var(--hint); cursor: default; }
+.clear-btn:active { background: var(--fill); }
+.with-clear { position: relative; }
+.with-clear input { padding-right: 48px; }
+.with-clear .clear-btn { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); }
 
 .results {
   overscroll-behavior: contain;
@@ -459,6 +465,7 @@ p { margin: 0; }
 .field-error { font-size: 14px; color: var(--fail-text); }
 .location { display: grid; gap: 12px; }
 .loc-pick { display: grid; gap: 4px; }
+.loc-search input::-webkit-search-cancel-button { display: none; }
 #locState:empty { display: none; }
 .field input[readonly] { color: var(--ink); }
 .location .text-btn { justify-self: start; color: var(--ink-2); padding: 0; }

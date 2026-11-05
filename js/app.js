@@ -55,7 +55,6 @@ function showMapMessage(title, detail) {
 
 function setSearchEnabled(on) {
   $('q').disabled = !on;
-  $('searchBtn').disabled = !on;
 }
 
 function loadKakaoSdk(key) {
@@ -271,6 +270,16 @@ function addFromPlace() {
   formDirty = false; // 채워 준 내용이라 그냥 나가도 묻지 않습니다.
 }
 
+// 검색어를 지웁니다. 찾아 둔 결과와 표시도 함께 걷습니다.
+function onClearSearch() {
+  $('q').value = '';
+  $('qClear').hidden = true;
+  $('results').hidden = true;
+  if (cardPlace) hidePlaceCard();
+  searchMarker?.setMap(null);
+  $('q').focus();
+}
+
 function makeSearchDot() {
   const dot = document.createElement('div');
   dot.className = 'search-dot';
@@ -440,16 +449,12 @@ function renderLocationTools() {
   $('locMapBtn').disabled = none;
 }
 
-// 주소를 고르기 전에는 검색 칸을, 고른 뒤에는 주소와 '변경'을 보여 줍니다.
-let changingLocation = false;
-
+// 주소를 고르기 전에는 검색 칸을, 고른 뒤에는 주소와 지우기(X)를 보여 줍니다.
 function renderDraftLocation() {
   const on = !!draftLocation;
-  const choosing = !on || changingLocation;
-  $('locPick').hidden = !choosing;
-  $('locChosen').hidden = choosing;
-  $('locKeep').hidden = !(on && changingLocation);
-  $('locState').textContent = on && !changingLocation ? (draftLocation.label || '') : '';
+  $('locPick').hidden = on;
+  $('locChosen').hidden = !on;
+  $('locState').textContent = on ? (draftLocation.label || '') : '';
   $('locResults').hidden = true;
 }
 
@@ -503,7 +508,6 @@ function fillAddressFromCoord(lat, lng, keepClean = false) {
 
 function setDraftLocation(lat, lng, label = '') {
   draftLocation = { lat, lng, label };
-  changingLocation = false;
   formDirty = true;
   renderDraftLocation();
 }
@@ -526,7 +530,6 @@ function openForm(item = null) {
   form.elements.address.readOnly = !!item?.address;
   form.elements.address.placeholder = '';
   autoRegion = null;
-  changingLocation = false;
   draftLocation = item && isLocated(item) ? { lat: item.lat, lng: item.lng, label: '' } : null;
   renderDraftLocation();
   // 주소 기능을 넣기 전에 저장한 매물은 위치만 있으니 이때 채워 줍니다.
@@ -810,6 +813,8 @@ function loadItems() {
 
 $('ver').textContent = VERSION;
 $('searchForm').addEventListener('submit', onSearch);
+$('q').addEventListener('input', () => { $('qClear').hidden = !$('q').value; });
+$('qClear').addEventListener('click', onClearSearch);
 $('locate').addEventListener('click', onLocate);
 $('sheetToggle').addEventListener('click', onToggleSheet);
 $('addBtn').addEventListener('click', () => openForm());
@@ -837,16 +842,10 @@ $('locClear').addEventListener('click', () => {
   draftLocation = null;
   $('f-address').value = '';
   $('locQ').value = '';
-  changingLocation = false;
+  // 주소에서 자동으로 넣은 지역이면 함께 지웁니다. 직접 적은 지역은 둡니다.
+  if ($('f-region').value === autoRegion) $('f-region').value = '';
+  autoRegion = null;
   formDirty = true;
-  renderDraftLocation();
-});
-$('locChange').addEventListener('click', () => {
-  changingLocation = true;
-  renderDraftLocation();
-});
-$('locKeep').addEventListener('click', () => {
-  changingLocation = false;
   renderDraftLocation();
 });
 $('pickOk').addEventListener('click', () => endPick(true));

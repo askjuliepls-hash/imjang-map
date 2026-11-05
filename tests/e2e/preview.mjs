@@ -283,12 +283,15 @@ try {
     await page.click('#locResults button');
     expect(s, '장소를 고르면 위치가 찍힘', (await text(page, '#locState')).includes('테스트 장소 A'));
     expect(s, '장소를 고르면 주소가 채워짐', (await page.$eval('#f-address', (el) => el.value)) === '테스트시 테스트구 가짜로 1');
-    expect(s, '주소를 고르면 검색 칸 대신 주소와 변경이 보임', !(await visible(page, '#locQ')) && await visible(page, '#f-address') && await visible(page, '#locChange'));
+    expect(s, '주소를 고르면 검색 칸 대신 주소와 X가 보임', !(await visible(page, '#locQ')) && await visible(page, '#f-address') && await visible(page, '#locClear'));
     await shot(page, 'c-form-chosen');
-    await page.click('#locChange');
-    expect(s, '주소 변경을 누르면 검색 칸이 다시 보임', await visible(page, '#locQ') && await visible(page, '#locKeep'));
-    await page.click('#locKeep');
-    expect(s, '그대로 두기를 누르면 주소가 그대로', (await page.$eval('#f-address', (el) => el.value)) === '테스트시 테스트구 가짜로 1' && await visible(page, '#f-address'));
+    const regionBefore = await page.$eval('#f-region', (el) => el.value);
+    await page.click('#locClear');
+    expect(s, 'X를 누르면 주소와 자동 지역이 지워지고 검색 칸이 보임', (await page.$eval('#f-address', (el) => el.value)) === '' && (await page.$eval('#f-region', (el) => el.value)) === '' && regionBefore !== '' && await visible(page, '#locQ'));
+    await page.type('#locQ', '테스트 장소');
+    await page.keyboard.press('Enter');
+    await wait(180);
+    await page.click('#locResults button');
     await page.click('#saveListing');
     await wait(80);
     let list = await stored(page);
@@ -355,7 +358,9 @@ try {
     await page.goto(BASE, { waitUntil: 'load' });
     await appReady(page);
     await page.waitForSelector('#locSearchBtn:not([disabled])', { timeout: 3000 });
+    expect(s, '검색어가 없으면 X가 안 보이고 검색 버튼도 없음', !(await visible(page, '#qClear')) && !(await page.$('#searchBtn')));
     await page.type('#q', '많은장소');
+    expect(s, '검색어를 적으면 X가 보임', await visible(page, '#qClear'));
     await page.keyboard.press('Enter');
     await page.waitForSelector('#results:not([hidden]) button', { timeout: 3000 });
     // 재발 방지(2026-11-05): 결과를 5개로 잘라 '가짜약국' 중 성남 지점이 안 보이던 문제
@@ -411,6 +416,12 @@ try {
     });
     expect(s, '안내 카드가 카카오 로고 자리를 가리지 않음', logoClear);
     await shot(page, 'g2-place-card');
+    await page.click('#qClear');
+    expect(s, 'X를 누르면 검색어와 카드와 표시가 지워짐', (await page.$eval('#q', (el) => el.value)) === '' && !(await visible(page, '#placeCard')) && !(await visible(page, '#qClear')) && !(await page.$('.search-dot')) && await visible(page, '#addBtn'));
+    await page.type('#q', '테스트 장소');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('#results:not([hidden]) button', { timeout: 3000 });
+    await page.click('#results button');
     await page.click('#placeClose');
     expect(s, '닫으면 카드가 사라지고 매물 추가 버튼이 돌아옴', !(await visible(page, '#placeCard')) && await visible(page, '#addBtn'));
     await page.$eval('#q', (el) => { el.value = ''; });

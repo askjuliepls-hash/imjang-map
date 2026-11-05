@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1b1d23" media="(prefers-color-scheme: dark)">
-<meta name="app-version" content="0.2.0-1105d">
+<meta name="app-version" content="0.2.0-1105e">
 <title>약국 임장노트</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="stylesheet" href="./fonts/pretendard/pretendardvariable-dynamic-subset.css">
-<link rel="stylesheet" href="./css/app.css?v=0.2.0-1105d">
+<link rel="stylesheet" href="./css/app.css?v=0.2.0-1105e">
 <script>
 // 아이폰 홈 화면 앱은 위쪽 흐림 효과가 앱 글자와 겹쳐서 윗부분을 띄웁니다(css/app.css의 --top-gap).
 if (window.navigator.standalone === true) document.documentElement.classList.add('ios-app');
@@ -18,13 +18,13 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
 <script type="importmap">
 {
   "imports": {
-    "./js/config.js": "./js/config.js?v=0.2.0-1105d",
-    "./js/lib/device.js": "./js/lib/device.js?v=0.2.0-1105d",
-    "./js/lib/format.js": "./js/lib/format.js?v=0.2.0-1105d",
-    "./js/lib/listings.js": "./js/lib/listings.js?v=0.2.0-1105d",
-    "./js/lib/messages.js": "./js/lib/messages.js?v=0.2.0-1105d",
-    "./js/lib/places.js": "./js/lib/places.js?v=0.2.0-1105d",
-    "./js/lib/store.js": "./js/lib/store.js?v=0.2.0-1105d"
+    "./js/config.js": "./js/config.js?v=0.2.0-1105e",
+    "./js/lib/device.js": "./js/lib/device.js?v=0.2.0-1105e",
+    "./js/lib/format.js": "./js/lib/format.js?v=0.2.0-1105e",
+    "./js/lib/listings.js": "./js/lib/listings.js?v=0.2.0-1105e",
+    "./js/lib/messages.js": "./js/lib/messages.js?v=0.2.0-1105e",
+    "./js/lib/places.js": "./js/lib/places.js?v=0.2.0-1105e",
+    "./js/lib/store.js": "./js/lib/store.js?v=0.2.0-1105e"
   }
 }
 </script>
@@ -49,7 +49,7 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
     <form id="searchForm" class="search" role="search">
       <svg class="search-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5 20 20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <input id="q" type="search" placeholder="장소나 주소 검색" enterkeyhint="search" autocomplete="off" aria-label="장소나 주소 검색">
-      <button type="submit" id="searchBtn">검색</button>
+      <button class="clear-btn" id="qClear" type="button" aria-label="검색어 지우기" hidden><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
     </form>
     <ul id="results" class="results" hidden></ul>
     <button id="locate" class="fab" type="button">
@@ -118,14 +118,12 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
             <div class="loc-actions">
               <button class="text-btn" id="locMapBtn" type="button">지도에서 찾기</button>
               <button class="text-btn" id="locHereBtn" type="button">현재 위치</button>
-              <button class="text-btn" id="locKeep" type="button" hidden>그대로 두기</button>
             </div>
           </div>
           <div id="locChosen" class="loc-pick" hidden>
-            <input id="f-address" name="address" type="text" autocomplete="off" aria-label="주소">
-            <div class="loc-actions">
-              <button class="text-btn" id="locChange" type="button">주소 변경</button>
-              <button class="text-btn" id="locClear" type="button">지우기</button>
+            <div class="with-clear">
+              <input id="f-address" name="address" type="text" autocomplete="off" aria-label="주소">
+              <button class="clear-btn" id="locClear" type="button" aria-label="주소 지우기"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
             </div>
           </div>
           <p class="muted" id="locState"></p>
@@ -219,6 +217,6 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
   };
 })();
 </script>
-<script type="module" src="./js/app.js?v=0.2.0-1105d"></script>
+<script type="module" src="./js/app.js?v=0.2.0-1105e"></script>
 </body>
 </html>
