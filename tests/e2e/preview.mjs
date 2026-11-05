@@ -93,7 +93,7 @@ async function layout(page) {
     const vw = window.innerWidth;
     const visibleInputs = [...document.querySelectorAll('input')].filter((i) => i.offsetParent !== null);
     const small = visibleInputs.filter((i) => parseFloat(getComputedStyle(i).fontSize) < 16).map((i) => i.id);
-    const clipped = [...document.querySelectorAll('.listing strong, .btn, .fill-btn, .score, .results strong, .results span, .fab, .form-msg, .next-help, .row p, .list-head span, .view-tabs button, .listing .meta, .fact')]
+    const clipped = [...document.querySelectorAll('.listing strong, .btn, .fill-btn, .score, .results strong, .results span, .fab, .form-msg, .next-help, .row p, .list-head span, .view-tabs button, .listing .meta, .fact, .side, .set-label, .set-note, .set-value, #barTitle')]
       .filter((el) => el.offsetParent !== null && el.scrollWidth > el.clientWidth + 1)
       .map((el) => `${el.className}:${el.textContent.trim().slice(0, 16)}`);
     const de = document.documentElement;
@@ -179,6 +179,7 @@ try {
     expect(s, '탭 이름이 지도·매물 목록·설정', (await text(page, '#tabbar')).replace(/\s+/g, '') === '지도매물목록설정');
     await shot(page, 'a-list-empty');
     await goTab(page, 'settings');
+    expect(s, '설정의 모든 줄에 기호가 있고 분류 설명이 있음', (await page.$$('#settingsPanel .set-icon')).length === 3 && (await text(page, '#catManage')).includes('지도 핀 색'));
     expect(s, '설정에 앱 다시 불러오기가 없음', !(await text(page, '#settingsPanel')).includes('다시 불러오기') && !(await visible(page, '#topReload')) && !(await visible(page, '#addBtn')));
     await shot(page, 'a-settings');
     await goTab(page, 'map');
@@ -360,6 +361,7 @@ try {
     // 핀 → 상세
     await page.evaluate(() => document.querySelector('.mock-marker').click());
     expect(s, '핀을 누르면 지도를 둔 채 요약 카드가 보임', await visible(page, '#pinCard') && await inView(page, '#pinOpen') && !(await visible(page, '#detailScreen')));
+    expect(s, '핀 카드 오른쪽 끝에 지역이 보임', (await text(page, '#pinSide')).length > 0);
     await shot(page, 'c-pin-card');
     await page.click('#pinClose');
     expect(s, '카드를 닫으면 매물 추가가 돌아옴', !(await visible(page, '#pinCard')) && await visible(page, '#addBtn'));
@@ -426,13 +428,20 @@ try {
     const heads = () => page.$$eval('#list .list-head span:first-child', (a) => a.map((x) => x.textContent));
     const dateHeads = await heads();
     expect(s, '임장 날짜별: 최근 날짜부터, 임장 전은 맨 끝', dateHeads.length === 3 && dateHeads[0].includes('11월 3일') && dateHeads[1].startsWith('2025년') && dateHeads[2] === '임장 전', dateHeads.join(' / '));
+    await goTab(page, 'list');
     await layoutExpect(page, s);
+    const order = await page.evaluate(() => [...document.querySelectorAll('#list .fact')].slice(0, 4).map((f) => f.firstChild.textContent));
+    expect(s, '금액은 권리금, 보증금, 월세, 예상 순수익 순', order.join() === '권리금,보증금,월세,예상 순수익', order.join());
+    const unbroken = await page.evaluate(() => [...document.querySelectorAll('#list .fact')].every((f) => f.getClientRects().length === 1 && getComputedStyle(f).whiteSpace === 'nowrap'));
+    // 재발 방지(2026-11-05): '예상 / 순수익 687만원'처럼 항목 중간에서 줄이 바뀌던 문제
+    expect(s, '금액 항목이 중간에서 줄바꿈되지 않음', unbroken);
+    expect(s, '이름 줄 오른쪽 끝에 지역이 보임', (await page.$eval('#list .side', (el) => el.textContent)).length > 0);
     await shot(page, 'k-by-date');
     await goTab(page, 'list');
     await page.click('#viewTabs [data-view="region"]');
     const regionHeads = await heads();
     expect(s, '지역별: 가나다순, 주소로 지역을 읽고, 모르면 맨 끝', regionHeads.join() === '경기 성남시 수정구,경기 성남시 중원구,서울 중구,지역 없음', regionHeads.join(' / '));
-    expect(s, '지역별 줄에는 임장 날짜가 보임', (await text(page, '#list')).includes('11월 3일'));
+    expect(s, '지역별 줄 오른쪽 끝에는 임장 날짜가 보임', (await page.$$eval('#list .side', (a) => a.map((x) => x.textContent))).some((x) => x.includes('11월 3일')));
     await shot(page, 'k-by-region');
     await page.reload({ waitUntil: 'load' });
     await appReady(page);
@@ -494,6 +503,9 @@ try {
     });
     expect(s, '저장 안내가 분류 칩을 가리지 않음', noCover);
     await shot(page, 'l-map-chips');
+    await page.evaluate(() => document.querySelector('.mock-marker').click());
+    expect(s, '핀 카드에 분류 이름은 안 나옴', !(await text(page, '#pinCard')).includes('후보 ·') && !(await text(page, '#pinSide')).includes('후보'));
+    await page.click('#pinClose');
     await page.evaluate(() => [...document.querySelectorAll('#catChips .chip')].find((b) => b.textContent === '후보').click());
     expect(s, '분류를 고르면 그 핀만 보임', (await page.$$('.mock-marker')).length === 1);
     await page.evaluate(() => [...document.querySelectorAll('#catChips .chip')].find((b) => b.textContent === '전체').click());
@@ -866,9 +878,15 @@ try {
     await shot(page, 'j-main');
     // 재발 방지(2026-11-05): 홈 화면 앱에서 윗줄이 iOS 흐림 효과와 겹치던 문제 (실제 효과는 폰에서 확인)
     // 재발 방지(2026-11-05): 홈 화면 앱에서 맨 위가 iOS 흐림 효과와 겹치던 문제 (실제 효과는 폰에서 확인)
-    expect(s, '홈 화면 앱에서 검색창을 내려 둠', await page.$eval('.search', (el) => el.getBoundingClientRect().top >= 26));
+    const barH = await page.$eval('.topbar', (el) => el.getBoundingClientRect().height);
+    expect(s, '윗줄이 있고 너무 두껍지 않음', (await text(page, '#barTitle')) === '약국 임장노트' && barH <= 66, String(barH));
+    expect(s, '윗줄 글자를 흐림 효과 아래로 내려 둠', await page.$eval('#barTitle', (el) => el.getBoundingClientRect().top >= 26));
     await goTab(page, 'list');
+    expect(s, '목록 탭 윗줄은 내 매물과 개수', (await text(page, '#barTitle')) === '내 매물' && await visible(page, '#count'));
     await shot(page, 'j-list');
+    await goTab(page, 'settings');
+    expect(s, '설정 탭 윗줄은 설정', (await text(page, '#barTitle')) === '설정' && !(await visible(page, '#count')));
+    await shot(page, 'j-settings');
     await goTab(page, 'map');
     await page.click('#addBtn');
     await shot(page, 'j-form');

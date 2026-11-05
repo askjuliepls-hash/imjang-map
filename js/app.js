@@ -11,6 +11,7 @@ import { toPyeong, fromPyeong } from './lib/format.js';
 import {
   FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint,
   detailGroups, regionFromAddress, createListingStore, makeListingId, groupByVisitDate, groupByRegion, listingFacts, regionOf,
+  sideLabel,
 } from './lib/listings.js';
 import {
   kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage, saveErrorMessage, loadErrorMessage,
@@ -310,8 +311,8 @@ function showPinCard(id) {
   if (cardPlace) hidePlaceCard();
   pinId = id;
   $('pinName').textContent = item.name;
-  const facts = listingFacts(item).filter((f) => f.label !== '보증금' && f.label !== '월세');
-  $('pinLine').textContent = [categoryOf(item, categories)?.name, regionOf(item), ...facts.map((f) => `${f.label} ${f.value}`)].filter(Boolean).join(' · ');
+  $('pinSide').textContent = regionOf(item);
+  fillFacts($('pinFacts'), item);
   $('pinCard').hidden = false;
   $('addBtn').hidden = true;
 }
@@ -365,6 +366,19 @@ function onLocate() {
 // ---------- 내 매물 목록 ----------
 let view = 'date'; // 'date' 임장 날짜별 | 'region' 지역별 | 'category' 분류별
 
+// 금액들을 칸마다 묶어 넣습니다. 한 항목이 중간에 나뉘지 않고 통째로 다음 줄로 내려갑니다.
+function fillFacts(box, item) {
+  box.replaceChildren();
+  for (const fact of listingFacts(item)) {
+    const one = document.createElement('span');
+    one.className = 'fact';
+    const value = document.createElement('b');
+    value.textContent = fact.value;
+    one.append(fact.label, value);
+    box.append(one);
+  }
+}
+
 function colorDot(color) {
   const dot = document.createElement('i');
   dot.className = 'cat-dot';
@@ -376,9 +390,19 @@ function listingRow(item, now) {
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'listing';
+  const head = document.createElement('span');
+  head.className = 'name-row';
   const name = document.createElement('strong');
   name.textContent = item.name;
-  b.append(name);
+  head.append(name);
+  const side = sideLabel(item, { view, now });
+  if (side) {
+    const s = document.createElement('span');
+    s.className = 'side';
+    s.textContent = side;
+    head.append(s);
+  }
+  b.append(head);
   const line = summaryLine(item, { view, now });
   const cat = view === 'category' ? null : categoryOf(item, categories);
   if (line || cat) {
@@ -388,18 +412,10 @@ function listingRow(item, now) {
     sub.append(line);
     b.append(sub);
   }
-  const facts = listingFacts(item);
-  if (facts.length > 0) {
+  if (listingFacts(item).length > 0) {
     const box = document.createElement('span');
     box.className = 'facts';
-    for (const fact of facts) {
-      const one = document.createElement('span');
-      one.className = 'fact';
-      const value = document.createElement('b');
-      value.textContent = fact.value;
-      one.append(fact.label, value);
-      box.append(one);
-    }
+    fillFacts(box, item);
     b.append(box);
   }
   b.addEventListener('click', () => openDetail(item.id));
@@ -1104,6 +1120,7 @@ let tab = 'map';
 function setTab(next) {
   tab = next;
   $('app').dataset.tab = next;
+  $('barTitle').textContent = { map: '약국 임장노트', list: '내 매물', settings: '설정' }[next];
   for (const b of $('tabbar').querySelectorAll('button')) {
     b.setAttribute('aria-pressed', String(b.dataset.tab === next));
   }

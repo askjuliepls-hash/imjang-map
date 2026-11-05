@@ -123,11 +123,16 @@ export function groupByRegion(items) {
   return groups;
 }
 
-// 목록 한 줄의 회색 글씨. 묶음 제목과 겹치는 정보는 뺍니다.
+// 이름 줄 오른쪽 끝에 붙는 글씨. 지역별 보기에서는 묶음 제목이 지역이니 임장 날짜를 보여 줍니다.
+export function sideLabel(item, { view = 'date', now = new Date() } = {}) {
+  if (view === 'region') return item.visitDate ? formatVisitDate(item.visitDate, now) : '';
+  return regionOf(item);
+}
+
+// 이름 아래 회색 글씨. 오른쪽 끝이나 묶음 제목과 겹치는 정보는 뺍니다.
 export function summaryLine(item, { view = 'date', now = new Date() } = {}) {
   const parts = [];
-  if (view !== 'region' && regionOf(item)) parts.push(regionOf(item));
-  if (view !== 'date' && item.visitDate) parts.push(formatVisitDate(item.visitDate, now));
+  if (view === 'category' && item.visitDate) parts.push(formatVisitDate(item.visitDate, now));
   if (!isLocated(item)) parts.push('위치 없음');
   return parts.join(' · ');
 }
@@ -135,9 +140,9 @@ export function summaryLine(item, { view = 'date', now = new Date() } = {}) {
 // 목록에서 한눈에 비교할 금액들. 적은 것만 보여 줍니다.
 export function listingFacts(item) {
   return [
+    ['권리금', item.premium],
     ['보증금', item.deposit],
     ['월세', item.rent],
-    ['권리금', item.premium],
     ['예상 순수익', item.netProfit],
   ].filter(([, v]) => v).map(([label, v]) => ({ label, value: formatManwon(v) }));
 }

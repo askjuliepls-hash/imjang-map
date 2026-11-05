@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint, detailGroups,
-  formatVisitDate, groupByVisitDate, groupByRegion, regionOf, listingFacts,
+  formatVisitDate, groupByVisitDate, groupByRegion, regionOf, listingFacts, sideLabel,
   regionFromAddress, createListingStore,
 } from '../../js/lib/listings.js';
 import { createStore, KEY_PREFIX } from '../../js/lib/store.js';
@@ -75,11 +75,12 @@ test('입력칸 힌트', () => {
 
 test('목록 한 줄과 위치 표시', () => {
   const item = { region: '서울 중구', deposit: '5000', rent: '300', premium: '15000', lat: null, lng: null };
-  assert.equal(summaryLine(item), '서울 중구 · 위치 없음');
+  assert.equal(summaryLine(item), '위치 없음');
+  assert.equal(sideLabel(item), '서울 중구');
   assert.deepEqual(listingFacts(item), [
+    { label: '권리금', value: '1억 5,000만원' },
     { label: '보증금', value: '5,000만원' },
     { label: '월세', value: '300만원' },
-    { label: '권리금', value: '1억 5,000만원' },
   ]);
   assert.equal(isLocated(item), false);
   assert.equal(isLocated({ lat: 37, lng: 127 }), true);
@@ -181,8 +182,12 @@ test('묶음 제목과 겹치는 정보는 목록 줄에서 뺀다', () => {
   const item = L('a', '2026-11-05', '서울 중구');
   item.lat = 37;
   item.lng = 127;
-  assert.equal(summaryLine(item, { view: 'date', now: NOW }), '서울 중구');
-  assert.equal(summaryLine(item, { view: 'region', now: NOW }), '11월 5일 (목)');
+  assert.equal(summaryLine(item, { view: 'date', now: NOW }), '');
+  assert.equal(summaryLine(item, { view: 'region', now: NOW }), '');
+  assert.equal(summaryLine(item, { view: 'category', now: NOW }), '11월 5일 (목)');
+  assert.equal(sideLabel(item, { view: 'date', now: NOW }), '서울 중구');
+  assert.equal(sideLabel(item, { view: 'region', now: NOW }), '11월 5일 (목)');
+  assert.equal(sideLabel(item, { view: 'category', now: NOW }), '서울 중구');
 });
 
 test('평을 ㎡로 바꾸고, 다시 평으로 봐도 같다', () => {
