@@ -40,7 +40,6 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
       </svg>
       <h1 id="barTitle">약국 임장노트</h1>
     </div>
-    <span class="score" id="count">0개</span>
   </header>
 
   <main class="stage">
@@ -66,10 +65,8 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
     </div>
     <div id="pinCard" class="pick-bar" hidden>
       <div class="place-info">
-        <div class="name-row">
-          <strong id="pinName"></strong>
-          <span class="side" id="pinSide"></span>
-        </div>
+        <strong id="pinName"></strong>
+        <span id="pinMeta"></span>
         <span class="facts" id="pinFacts"></span>
       </div>
       <div class="pick-actions">
@@ -105,10 +102,19 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
         <button type="button" data-view="region" aria-pressed="false">지역별</button>
         <button type="button" data-view="category" aria-pressed="false">분류별</button>
       </div>
-      <div class="date-tools" id="dateTools" role="group" aria-label="임장 날짜 보기" hidden>
-        <button class="chip" id="orderNew" type="button" aria-pressed="true">최근순</button>
-        <button class="chip" id="orderOld" type="button" aria-pressed="false">오래된순</button>
-        <button class="chip" id="datePick" type="button" aria-pressed="false">날짜 선택</button>
+      <div class="list-meta" id="listMeta" hidden>
+        <span id="count">총 0개</span>
+        <div class="sort-wrap" id="sortWrap">
+          <button class="sort-btn" id="sortBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="sortMenu">
+            <span id="sortLabel">최근순</span>
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="sort-menu" id="sortMenu" hidden>
+            <button id="orderNew" type="button" aria-pressed="true">최근순</button>
+            <button id="orderOld" type="button" aria-pressed="false">오래된순</button>
+            <button id="datePick" type="button" aria-pressed="false">날짜 선택</button>
+          </div>
+        </div>
       </div>
       <ul class="listings" id="list"></ul>
     </div>

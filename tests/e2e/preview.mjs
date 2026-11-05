@@ -242,7 +242,7 @@ try {
     await wait(80);
     expect(s, '저장하면 양식이 닫힘', !(await visible(page, '#formScreen')));
     expect(s, '저장 안내가 보임', await visible(page, '#toast') && (await text(page, '#toast')).includes('저장'));
-    expect(s, '목록에 한 줄 생김', (await text(page, '#list')).includes('○○병원') && (await text(page, '#count')) === '1개');
+    expect(s, '목록에 한 줄 생김', (await text(page, '#list')).includes('○○병원') && (await text(page, '#count')) === '총 1개');
     expect(s, '목록에 위치 없음 표시', (await text(page, '#list')).includes('위치 없음') && (await text(page, '#list')).includes('1억 5,000만원'));
     await shot(page, 'b-list');
     await page.reload({ waitUntil: 'load' });
@@ -361,7 +361,7 @@ try {
     // 핀 → 상세
     await page.evaluate(() => document.querySelector('.mock-marker').click());
     expect(s, '핀을 누르면 지도를 둔 채 요약 카드가 보임', await visible(page, '#pinCard') && await inView(page, '#pinOpen') && !(await visible(page, '#detailScreen')));
-    expect(s, '핀 카드 오른쪽 끝에 지역이 보임', (await text(page, '#pinSide')).length > 0);
+    expect(s, '핀 카드 이름 아래에 지역이 보임', (await text(page, '#pinMeta')).length > 0 && (await page.$eval('#pinName', (a) => a.getBoundingClientRect().bottom)) <= (await page.$eval('#pinMeta', (a) => a.getBoundingClientRect().top)) + 1);
     await shot(page, 'c-pin-card');
     await page.click('#pinClose');
     expect(s, '카드를 닫으면 매물 추가가 돌아옴', !(await visible(page, '#pinCard')) && await visible(page, '#addBtn'));
@@ -440,10 +440,18 @@ try {
     await goTab(page, 'list');
     // 재발 방지(2026-11-05): 올해 날짜에 연도가 빠져 어느 해인지 알 수 없던 문제
     expect(s, '임장 날짜에 늘 연도가 보임', (await heads()).filter((x) => x !== '임장 전').every((x) => /^\d{4}년/.test(x)), (await heads()).join(' / '));
-    expect(s, '날짜 도구 세 가지가 보임', await visible(page, '#orderNew') && await visible(page, '#orderOld') && await visible(page, '#datePick'));
+    expect(s, '총 개수와 정렬이 한 줄에 보임', (await text(page, '#count')) === '총 5개' && (await text(page, '#sortLabel')) === '최근순' && !(await visible(page, '#sortMenu')));
+    await page.click('#sortBtn');
+    expect(s, '정렬을 누르면 세 가지가 스크롤 없이 보임', await inView(page, '#orderNew') && await inView(page, '#orderOld') && await inView(page, '#datePick'));
+    await shot(page, 'k-sort-open');
+    await page.click('#count');
+    expect(s, '바깥을 누르면 드롭다운이 닫힘', !(await visible(page, '#sortMenu')));
+    await page.click('#sortBtn');
     await page.click('#orderOld');
+    expect(s, '고른 정렬이 버튼에 보이고 닫힘', (await text(page, '#sortLabel')) === '오래된순' && !(await visible(page, '#sortMenu')));
     const oldHeads = await heads();
     expect(s, '오래된순: 오래된 날짜부터, 임장 전은 맨 끝', oldHeads[0].startsWith('2025년') && oldHeads[2] === '임장 전', oldHeads.join(' / '));
+    await page.click('#sortBtn');
     await page.click('#datePick');
     expect(s, '날짜 선택을 누르면 달력이 뜸', await visible(page, '#calModal') && await inView(page, '#calClose') && (await text(page, '#calTitle')) === '2026년 11월');
     const dayState = await page.evaluate(() => {
@@ -459,12 +467,13 @@ try {
     await page.click('[data-date="2026-11-03"]');
     const pickedHeads = await heads();
     expect(s, '날짜를 고르면 그날 매물만 보임', !(await visible(page, '#calModal')) && pickedHeads.length === 1 && pickedHeads[0].startsWith('2026년 11월 3일') && (await page.$$('#list .listing')).length === 2, pickedHeads.join(' / '));
-    expect(s, '고른 날짜가 버튼에 보임', (await text(page, '#datePick')) === '2026.11.03');
+    expect(s, '고른 날짜가 버튼에 보임', (await text(page, '#sortLabel')) === '2026.11.03');
     await shot(page, 'k-date-picked');
+    await page.click('#sortBtn');
     await page.click('#orderNew');
-    expect(s, '최근순을 누르면 전체로 돌아옴', (await heads()).length === 3 && (await text(page, '#datePick')) === '날짜 선택');
+    expect(s, '최근순을 누르면 전체로 돌아옴', (await heads()).length === 3 && (await text(page, '#sortLabel')) === '최근순');
     await page.click('#viewTabs [data-view="region"]');
-    expect(s, '다른 보기에서는 날짜 도구가 안 보임', !(await visible(page, '#dateTools')));
+    expect(s, '다른 보기에서는 정렬이 안 보이고 총 개수는 보임', !(await visible(page, '#sortBtn')) && await visible(page, '#count'));
     const regionHeads = await heads();
     expect(s, '지역별: 가나다순, 주소로 지역을 읽고, 모르면 맨 끝', regionHeads.join() === '경기 성남시 수정구,경기 성남시 중원구,서울 중구,지역 없음', regionHeads.join(' / '));
     expect(s, '지역별 줄 오른쪽 끝에는 임장 날짜가 보임', (await page.$$eval('#list .side', (a) => a.map((x) => x.textContent))).includes('2026.11.03'));
@@ -530,7 +539,7 @@ try {
     expect(s, '저장 안내가 분류 칩을 가리지 않음', noCover);
     await shot(page, 'l-map-chips');
     await page.evaluate(() => document.querySelector('.mock-marker').click());
-    expect(s, '핀 카드에 분류 이름은 안 나옴', !(await text(page, '#pinCard')).includes('후보 ·') && !(await text(page, '#pinSide')).includes('후보'));
+    expect(s, '핀 카드에 분류 이름은 안 나옴', !(await text(page, '#pinMeta')).includes('후보') && !(await text(page, '#pinFacts')).includes('후보'));
     await page.click('#pinClose');
     await page.evaluate(() => [...document.querySelectorAll('#catChips .chip')].find((b) => b.textContent === '후보').click());
     expect(s, '분류를 고르면 그 핀만 보임', (await page.$$('.mock-marker')).length === 1);
@@ -684,7 +693,7 @@ try {
       await fillAndSave(page, { name: '공간 부족 약국' });
       expect(s, '저장 못 하면 양식이 닫히지 않고 이유가 보임', await visible(page, '#formScreen') && (await text(page, '#formMsg')).includes('가득') && await inViewSoon(page, '#formMsg'));
       expect(s, '입력한 내용이 남아 있음', (await page.$eval('#f-name', (el) => el.value)) === '공간 부족 약국');
-      expect(s, '목록에 가짜로 추가되지 않음', (await text(page, '#count')) === '0개');
+      expect(s, '목록에 가짜로 추가되지 않음', (await text(page, '#count')) === '총 0개');
       expect(s, '스크립트 오류 없음(공간 부족)', errors.length === 0, errors.join(' | '));
       await shot(page, 'd-save-failed');
       await context.close();
@@ -908,7 +917,7 @@ try {
     expect(s, '윗줄이 있고 너무 두껍지 않음', (await text(page, '#barTitle')) === '약국 임장노트' && barH <= 66, String(barH));
     expect(s, '윗줄 글자를 흐림 효과 아래로 내려 둠', await page.$eval('#barTitle', (el) => el.getBoundingClientRect().top >= 26));
     await goTab(page, 'list');
-    expect(s, '목록 탭 윗줄은 내 매물과 개수', (await text(page, '#barTitle')) === '내 매물' && await visible(page, '#count'));
+    expect(s, '목록 탭 윗줄은 내 매물, 총 개수는 아래 줄', (await text(page, '#barTitle')) === '내 매물' && (await text(page, '.topbar')).trim() === '내 매물' && await visible(page, '#count'));
     await shot(page, 'j-list');
     await goTab(page, 'settings');
     expect(s, '설정 탭 윗줄은 설정', (await text(page, '#barTitle')) === '설정' && !(await visible(page, '#count')));

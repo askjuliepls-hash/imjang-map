@@ -311,7 +311,9 @@ function showPinCard(id) {
   if (cardPlace) hidePlaceCard();
   pinId = id;
   $('pinName').textContent = item.name;
-  $('pinSide').textContent = regionOf(item);
+  const pinMeta = [regionOf(item), shortVisitDate(item.visitDate)].filter(Boolean).join(' · ');
+  $('pinMeta').textContent = pinMeta;
+  $('pinMeta').hidden = !pinMeta;
   fillFacts($('pinFacts'), item);
   $('pinCard').hidden = false;
   $('addBtn').hidden = true;
@@ -425,7 +427,8 @@ function listingRow(item) {
 }
 
 function renderList() {
-  $('count').textContent = `${items.length}개`;
+  $('count').textContent = `총 ${items.length}개`;
+  $('listMeta').hidden = items.length === 0;
   $('empty').hidden = items.length > 0;
   $('viewTabs').hidden = items.length === 0;
   for (const tab of $('viewTabs').querySelectorAll('button')) {
@@ -468,14 +471,21 @@ function dateGroups() {
 }
 
 function renderDateTools() {
-  $('dateTools').hidden = items.length === 0 || view !== 'date';
+  $('sortWrap').hidden = view !== 'date';
   $('orderNew').setAttribute('aria-pressed', String(dateMode === 'new'));
   $('orderOld').setAttribute('aria-pressed', String(dateMode === 'old'));
   $('datePick').setAttribute('aria-pressed', String(dateMode === 'pick'));
-  $('datePick').textContent = dateMode === 'pick' ? shortVisitDate(pickedDate) : '날짜 선택';
+  const label = { new: '최근순', old: '오래된순' }[dateMode] || shortVisitDate(pickedDate);
+  $('sortLabel').textContent = label;
+}
+
+function setSortMenu(open) {
+  $('sortMenu').hidden = !open;
+  $('sortBtn').setAttribute('aria-expanded', String(open));
 }
 
 function setDateOrder(mode) {
+  setSortMenu(false);
   dateMode = mode;
   pickedDate = null;
   store.write('dateOrder', mode); // 다음에 열 때도 같은 순서로
@@ -1322,7 +1332,17 @@ const savedOrder = store.read('dateOrder');
 if (savedOrder.ok && savedOrder.data === 'old') dateMode = 'old';
 $('orderNew').addEventListener('click', () => setDateOrder('new'));
 $('orderOld').addEventListener('click', () => setDateOrder('old'));
-$('datePick').addEventListener('click', openCalendar);
+$('datePick').addEventListener('click', () => {
+  setSortMenu(false);
+  openCalendar();
+});
+$('sortBtn').addEventListener('click', (ev) => {
+  ev.stopPropagation(); // 아래의 '바깥을 누르면 닫기'가 바로 닫지 않게
+  setSortMenu($('sortMenu').hidden);
+});
+document.addEventListener('click', (ev) => {
+  if (!$('sortMenu').hidden && !$('sortMenu').contains(ev.target)) setSortMenu(false);
+});
 $('calClose').addEventListener('click', () => { $('calModal').hidden = true; });
 $('calPrev').addEventListener('click', () => moveCalendar(-1));
 $('calNext').addEventListener('click', () => moveCalendar(1));
