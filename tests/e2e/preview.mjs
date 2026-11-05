@@ -19,7 +19,7 @@ const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleW
 const PHONE = { width: 390, height: 664, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
+  '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png',
 };
 
 const results = [];
@@ -402,6 +402,24 @@ try {
       expect(s, '스크립트 오류 없음(거부)', errors.length === 0, errors.join(' | '));
       await context.close();
     }
+  });
+
+  // I. 홈 화면 설정: 크롬이 manifest를 제대로 읽는지와 아이콘 응답 (아이폰 동작의 증거는 아님)
+  await scenario('I 홈 화면', async (s) => {
+    const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock' }, s);
+    await page.goto(BASE, { waitUntil: 'load' });
+    const cdp = await page.createCDPSession();
+    const m = await cdp.send('Page.getAppManifest');
+    expect(s, 'manifest를 오류 없이 읽음', m.errors.length === 0, JSON.stringify(m.errors));
+    expect(s, 'manifest 내용이 비어 있지 않음(404 함정)', !!m.data && m.data.includes('약국 임장노트'));
+    const icon = await page.evaluate(async () => {
+      const href = document.querySelector('link[rel="apple-touch-icon"]').href;
+      const r = await fetch(href);
+      const b = new Uint8Array(await r.arrayBuffer());
+      return { status: r.status, sig: [...b.slice(1, 4)].map((c) => String.fromCharCode(c)).join('') };
+    });
+    expect(s, '아이폰 아이콘이 200이고 PNG', icon.status === 200 && icon.sig === 'PNG', JSON.stringify(icon));
+    await context.close();
   });
 
   // J. 큰 화면 + 아래 안전 영역(홈 표시줄): Safari 도구막대가 없는 홈 화면 앱에 가까운 크기
