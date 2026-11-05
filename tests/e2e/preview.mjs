@@ -283,6 +283,12 @@ try {
     await page.click('#locResults button');
     expect(s, '장소를 고르면 위치가 찍힘', (await text(page, '#locState')).includes('테스트 장소 A'));
     expect(s, '장소를 고르면 주소가 채워짐', (await page.$eval('#f-address', (el) => el.value)) === '테스트시 테스트구 가짜로 1');
+    expect(s, '주소를 고르면 검색 칸 대신 주소와 변경이 보임', !(await visible(page, '#locQ')) && await visible(page, '#f-address') && await visible(page, '#locChange'));
+    await shot(page, 'c-form-chosen');
+    await page.click('#locChange');
+    expect(s, '주소 변경을 누르면 검색 칸이 다시 보임', await visible(page, '#locQ') && await visible(page, '#locKeep'));
+    await page.click('#locKeep');
+    expect(s, '그대로 두기를 누르면 주소가 그대로', (await page.$eval('#f-address', (el) => el.value)) === '테스트시 테스트구 가짜로 1' && await visible(page, '#f-address'));
     await page.click('#saveListing');
     await wait(80);
     let list = await stored(page);
@@ -324,6 +330,7 @@ try {
     // 핀 → 상세
     await page.evaluate(() => document.querySelector('.mock-marker').click());
     expect(s, '핀을 누르면 상세가 열림', await visible(page, '#detailScreen'));
+    expect(s, '상세에 주소가 보임', (await text(page, '#detailBody')).includes('주소'));
     await page.click('#mapViewBtn');
     expect(s, '지도에서 보기로 돌아옴', !(await visible(page, '#detailScreen')));
     // 위치 지우기 → 핀 사라짐
@@ -361,6 +368,13 @@ try {
     });
     expect(s, '결과 목록이 스크롤됨', scroll.moved && scroll.can && scroll.touch === 'pan-y', JSON.stringify(scroll));
     expect(s, '못 찾을 때의 안내가 있음', (await text(page, '#results')).includes('지역을 같이'));
+    await page.$eval('#q', (el) => { el.value = ''; });
+    await page.type('#q', '테스트 장소 A');
+    await page.keyboard.press('Enter');
+    await wait(250);
+    // 재발 방지(2026-11-05): 근처 검색이 돌려준 다른 약국까지 목록에 섞이던 문제
+    const names = await page.$$eval('#results button strong', (b) => b.map((x) => x.textContent));
+    expect(s, '찾는 말과 안 맞는 곳은 빠짐', names.length > 0 && names.every((x) => x.includes('테스트 장소 A')), names.join(','));
     await shot(page, 'g-search-many');
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
@@ -569,10 +583,11 @@ try {
     await wait(3600); // 저장 안내가 닫힌 뒤 캡처
     await shot(page, 'j-main');
     // 재발 방지(2026-11-05): 홈 화면 앱에서 윗줄이 iOS 흐림 효과와 겹치던 문제 (실제 효과는 폰에서 확인)
-    expect(s, '홈 화면 앱에서 윗줄을 내려 둠', await page.$eval('.brand', (el) => el.getBoundingClientRect().top >= 40));
+    const bar = await page.$eval('.topbar', (el) => el.getBoundingClientRect().height);
+    expect(s, '홈 화면 앱에서 윗줄을 내리되 너무 두껍지 않음', await page.$eval('.brand', (el) => el.getBoundingClientRect().top >= 26) && bar <= 66, String(bar));
     await page.click('#addBtn');
     await shot(page, 'j-form');
-    expect(s, '양식 윗줄도 내려 둠', await page.$eval('#formClose', (el) => el.getBoundingClientRect().top >= 30));
+    expect(s, '양식 윗줄도 내려 둠', await page.$eval('#formClose', (el) => el.getBoundingClientRect().top >= 20));
     await page.$eval('#saveListing', (el) => el.scrollIntoView({ block: 'end' }));
     expect(s, '저장 버튼이 가려지지 않음', await inView(page, '#saveListing'));
     await page.click('#formClose');

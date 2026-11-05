@@ -409,10 +409,17 @@ function renderLocationTools() {
   $('locMapBtn').disabled = none;
 }
 
+// 주소를 고르기 전에는 검색 칸을, 고른 뒤에는 주소와 '변경'을 보여 줍니다.
+let changingLocation = false;
+
 function renderDraftLocation() {
   const on = !!draftLocation;
-  $('locState').textContent = on ? (draftLocation.label || '위치를 찍었어요.') : '아직 위치가 없어요. 나중에 찍어도 돼요.';
-  $('locClear').hidden = !on;
+  const choosing = !on || changingLocation;
+  $('locPick').hidden = !choosing;
+  $('locChosen').hidden = choosing;
+  $('locKeep').hidden = !(on && changingLocation);
+  $('locState').textContent = on && !changingLocation ? (draftLocation.label || '') : '';
+  $('locResults').hidden = true;
 }
 
 // 좌표를 주소로 바꿉니다. 도로명이 있으면 도로명을, 없으면 지번을 씁니다.
@@ -434,7 +441,9 @@ function lookupAddress(lat, lng, done) {
 let autoRegion = null;
 
 function applyAddress(road, jibun) {
-  $('f-address').value = road || jibun || '';
+  const input = $('f-address');
+  input.value = road || jibun || '';
+  input.readOnly = !!input.value;
   const next = regionFromAddress(jibun || road);
   const region = $('f-region');
   if (next && (!region.value.trim() || region.value === autoRegion)) {
@@ -444,17 +453,26 @@ function applyAddress(road, jibun) {
   formDirty = true;
 }
 
-function fillAddressFromCoord(lat, lng) {
+function fillAddressFromCoord(lat, lng, keepClean = false) {
   lookupAddress(lat, lng, (r) => {
     // 그사이 다른 곳을 찍었으면 늦게 온 답은 버립니다.
     if (draftLocation?.lat !== lat || draftLocation?.lng !== lng) return;
-    if (r) applyAddress(r.road, r.jibun);
-    else $('locState').textContent = '위치는 찍었지만 주소를 찾지 못했어요. 주소 칸에 직접 적어 주세요.';
+    const wasDirty = formDirty;
+    if (r) {
+      applyAddress(r.road, r.jibun);
+      if (keepClean) formDirty = wasDirty; // 사용자가 쓴 내용이 아니니 '버릴까요'를 묻지 않습니다.
+      return;
+    }
+    const input = $('f-address');
+    input.readOnly = false;
+    input.placeholder = '주소를 직접 적어 주세요';
+    if (!keepClean) $('locState').textContent = '위치는 찍었지만 주소를 찾지 못했어요. 주소 칸에 직접 적어 주세요.';
   });
 }
 
 function setDraftLocation(lat, lng, label = '') {
   draftLocation = { lat, lng, label };
+  changingLocation = false;
   formDirty = true;
   renderDraftLocation();
 }
@@ -474,10 +492,14 @@ function openForm(item = null) {
   }
   form.elements.locationMemo.value = item?.locationMemo ?? '';
   form.elements.address.value = item?.address ?? '';
+  form.elements.address.readOnly = !!item?.address;
+  form.elements.address.placeholder = '';
   autoRegion = null;
-  draftLocation = item && isLocated(item) ? { lat: item.lat, lng: item.lng, label: '위치를 찍었어요.' } : null;
+  changingLocation = false;
+  draftLocation = item && isLocated(item) ? { lat: item.lat, lng: item.lng, label: '' } : null;
   renderDraftLocation();
-  $('locResults').hidden = true;
+  // 주소 기능을 넣기 전에 저장한 매물은 위치만 있으니 이때 채워 줍니다.
+  if (draftLocation && !item.address) fillAddressFromCoord(item.lat, item.lng, true);
   $('locQ').value = '';
   $('formMsg').hidden = true;
   $('nameError').hidden = true;
@@ -509,7 +531,7 @@ function closeModal() {
 
 function onCancelForm() {
   if (formDirty) {
-    askConfirm('쓰던 내용이 사라져요. 그만 쓸까요?', '버리기', '계속 쓰기', closeForm);
+    askConfirm('작성 중인 내용은 저장되지 않아요. 나갈까요?', '나가기', '계속 쓰기', closeForm);
     return;
   }
   closeForm();
@@ -569,7 +591,7 @@ function onLocSearch() {
     }
     for (const p of r.items) {
       ul.append(placeButton(p, () => {
-        setDraftLocation(Number(p.y), Number(p.x), `${p.place_name} 위치를 찍었어요.`);
+        setDraftLocation(Number(p.y), Number(p.x), p.place_name);
         applyAddress(p.road_address_name, p.address_name);
         ul.hidden = true;
       }));
@@ -585,7 +607,7 @@ function onLocHere() {
   $('locState').textContent = '위치를 찾는 중이에요. 권한을 물으면 허용해 주세요.';
   getPosition(
     (c) => {
-      setDraftLocation(c.latitude, c.longitude, `현재 위치를 찍었어요. 오차 약 ${Math.round(c.accuracy)}m.`);
+      setDraftLocation(c.latitude, c.longitude, `현재 위치 (오차 약 ${Math.round(c.accuracy)}m)`);
       fillAddressFromCoord(c.latitude, c.longitude);
     },
     (msg) => { $('locState').textContent = msg; },
@@ -637,7 +659,7 @@ function endPick(ok) {
   $('formScreen').hidden = false;
   map.relayout();
   if (ok && pickPos) {
-    setDraftLocation(pickPos.lat, pickPos.lng, '지도에서 위치를 찍었어요.');
+    setDraftLocation(pickPos.lat, pickPos.lng, '');
     if (pickAddress) applyAddress(pickAddress.road, pickAddress.jibun);
     else fillAddressFromCoord(pickPos.lat, pickPos.lng);
   }
@@ -696,11 +718,12 @@ function openDetail(id) {
     p.textContent = '아직 적은 내용이 없어요.';
     host.append(p);
   }
-  const memo = document.createElement('p');
-  memo.className = 'muted';
-  const loc = isLocated(item) ? '지도에 위치가 있어요.' : '아직 지도에 위치가 없어요.';
-  memo.textContent = item.locationMemo ? `${loc} 위치 메모: ${item.locationMemo}` : loc;
-  host.prepend(memo);
+  if (!isLocated(item)) {
+    const memo = document.createElement('p');
+    memo.className = 'muted';
+    memo.textContent = '아직 지도에 위치가 없어요.';
+    host.prepend(memo);
+  }
   $('mapViewBtn').hidden = !(isLocated(item) && map);
   $('detailMsg').hidden = true;
   $('detailScreen').hidden = false;
@@ -776,7 +799,17 @@ $('locMapBtn').addEventListener('click', onLocMap);
 $('locClear').addEventListener('click', () => {
   draftLocation = null;
   $('f-address').value = '';
+  $('locQ').value = '';
+  changingLocation = false;
   formDirty = true;
+  renderDraftLocation();
+});
+$('locChange').addEventListener('click', () => {
+  changingLocation = true;
+  renderDraftLocation();
+});
+$('locKeep').addEventListener('click', () => {
+  changingLocation = false;
   renderDraftLocation();
 });
 $('pickOk').addEventListener('click', () => endPick(true));

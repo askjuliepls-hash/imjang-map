@@ -20,7 +20,8 @@ function matches(place, words) {
   return words.every((w) => hay.includes(w));
 }
 
-// 겹친 결과를 없애고, 맞는 결과를 먼저, 그 안에서 지도 중심에 가까운 순으로 정렬합니다.
+// 겹친 결과를 없애고 지도 중심에 가까운 순으로 정렬합니다.
+// 근처 검색은 이름이 비슷하기만 한 약국도 돌려주므로, 찾는 말이 맞는 결과가 있으면 그것만 보여 줍니다.
 export function rankPlaces(places, query, center) {
   const words = String(query ?? '').trim().split(/\s+/).filter(Boolean);
   const seen = new Set();
@@ -32,10 +33,8 @@ export function rankPlaces(places, query, center) {
     const distance = center ? distanceMeters(center, { lat: Number(p.y), lng: Number(p.x) }) : NaN;
     ranked.push({ ...p, distance, matched: matches(p, words) });
   }
-  ranked.sort((a, b) => {
-    if (a.matched !== b.matched) return a.matched ? -1 : 1;
-    if (Number.isFinite(a.distance) && Number.isFinite(b.distance)) return a.distance - b.distance;
-    return 0;
-  });
-  return ranked;
+  const hits = ranked.filter((p) => p.matched);
+  const list = hits.length > 0 ? hits : ranked;
+  list.sort((a, b) => (Number.isFinite(a.distance) && Number.isFinite(b.distance) ? a.distance - b.distance : 0));
+  return list;
 }

@@ -38,7 +38,8 @@
   color-scheme: light;
 }
 /* 아이폰 홈 화면 앱: 상태 표시줄 아래로 약 47pt까지 흐림 효과가 내려와 글자와 겹칩니다(폰 캡처로 확인). */
-.ios-app { --top-gap: 30px; }
+.ios-app { --top-gap: 18px; }
+.ios-app .topbar { padding-bottom: 6px; }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #101217;
@@ -452,7 +453,10 @@ p { margin: 0; }
 .hint { min-height: 0; font-size: 14px; font-weight: 600; color: var(--ink-2); }
 .hint:empty { display: none; }
 .field-error { font-size: 14px; color: var(--fail-text); }
-.location { display: grid; gap: 8px; }
+.location { display: grid; gap: 12px; }
+.loc-pick { display: grid; gap: 4px; }
+#locState:empty { display: none; }
+.field input[readonly] { color: var(--ink); }
 .location .text-btn { justify-self: start; color: var(--ink-2); padding: 0; }
 .loc-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .loc-actions { display: flex; gap: 20px; }

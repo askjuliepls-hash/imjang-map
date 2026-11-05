@@ -100,7 +100,7 @@ export function fieldHint(kind, value) {
 
 // 상세 화면: 입력한 칸만 묶음별로 보여 줍니다.
 export function detailGroups(item) {
-  const fields = (g) => (g.title === '기본' ? [...g.fields, { key: 'address', label: '주소' }] : g.fields);
+  const fields = (g) => (g.title === '기본' ? [...g.fields, { key: 'address', label: '주소' }, { key: 'locationMemo', label: '상세 위치' }] : g.fields);
   return FIELD_GROUPS.map((g) => ({
     title: g.title,
     rows: fields(g)

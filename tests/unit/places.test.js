@@ -9,14 +9,19 @@ const SEOUL = place('2', '가짜약국', '서울 용산구 가짜동 2', 37.53, 
 const SEONGNAM = place('3', '가짜약국', '경기 성남시 중원구 가짜동 3', 37.44, 127.14);
 const NEAR_OTHER = place('4', '가짜다른약국', '경기 성남시 분당구 가짜동 5', 37.4, 127.11);
 
-test('이름이 맞는 곳을 먼저, 그 안에서 지도에 가까운 순으로 보여 준다', () => {
+test('찾는 말이 맞는 곳만 지도에 가까운 순으로 보여 준다(근처의 다른 약국은 뺀다)', () => {
   const r = rankPlaces([JINJU, SEOUL, NEAR_OTHER, SEONGNAM], '가짜약국', CENTER);
-  assert.deepEqual(r.map((x) => x.id), ['3', '2', '1', '4']);
+  assert.deepEqual(r.map((x) => x.id), ['3', '2', '1']);
+});
+
+test('맞는 곳이 하나도 없으면 비슷한 결과라도 보여 준다', () => {
+  const r = rankPlaces([NEAR_OTHER], '오타약국', CENTER);
+  assert.deepEqual(r.map((x) => x.id), ['4']);
 });
 
 test('지역을 같이 적어도 맞는 결과로 친다', () => {
   const r = rankPlaces([NEAR_OTHER, SEONGNAM], '성남 가짜약국', CENTER);
-  assert.equal(r[0].id, '3');
+  assert.deepEqual(r.map((x) => x.id), ['3']);
 });
 
 test('두 번 받은 결과는 한 번만 보여 준다', () => {
