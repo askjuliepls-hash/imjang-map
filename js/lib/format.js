@@ -36,3 +36,10 @@ export function toPyeong(squareMeters) {
   if (!Number.isFinite(n) || n <= 0) return '';
   return (n / 3.3058).toFixed(1);
 }
+
+// 평을 ㎡로 바꿉니다. 저장은 ㎡로 합니다.
+export function fromPyeong(pyeong) {
+  const n = Number(String(pyeong ?? '').replace(/[,\s]/g, ''));
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return String(Math.round(n * 3.3058 * 100) / 100);
+}

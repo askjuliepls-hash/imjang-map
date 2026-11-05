@@ -3,9 +3,10 @@ import { KAKAO_JS_KEY } from './config.js';
 import { isStandalone, openPlace } from './lib/device.js';
 import { createStore } from './lib/store.js';
 import { rankPlaces, formatDistance } from './lib/places.js';
+import { toPyeong, fromPyeong } from './lib/format.js';
 import {
   FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint,
-  detailGroups, regionFromAddress, createListingStore, makeListingId, groupByVisitDate, groupByRegion,
+  detailGroups, regionFromAddress, createListingStore, makeListingId, groupByVisitDate, groupByRegion, listingFacts,
 } from './lib/listings.js';
 import {
   kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage, saveErrorMessage, loadErrorMessage,
@@ -334,8 +335,23 @@ function listingRow(item, now) {
   const line = summaryLine(item, { view, now });
   if (line) {
     const sub = document.createElement('span');
+    sub.className = 'meta';
     sub.textContent = line;
     b.append(sub);
+  }
+  const facts = listingFacts(item);
+  if (facts.length > 0) {
+    const box = document.createElement('span');
+    box.className = 'facts';
+    for (const fact of facts) {
+      const one = document.createElement('span');
+      one.className = 'fact';
+      const value = document.createElement('b');
+      value.textContent = fact.value;
+      one.append(fact.label, value);
+      box.append(one);
+    }
+    b.append(box);
   }
   b.addEventListener('click', () => openDetail(item.id));
   const li = document.createElement('li');
@@ -389,7 +405,41 @@ let editingId = null;
 let draftLocation = null;
 let formDirty = false;
 
+// 면적은 ㎡와 평 어느 쪽으로 적어도 서로 채워 줍니다. 저장은 ㎡로 합니다.
+function areaInput(f) {
+  const box = document.createElement('div');
+  box.className = 'field';
+  const label = document.createElement('label');
+  label.htmlFor = `f-${f.key}`;
+  label.textContent = f.label;
+  const pair = document.createElement('div');
+  pair.className = 'area-pair';
+  const part = (id, name, unit, aria) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'with-unit';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = id;
+    if (name) input.name = name;
+    input.inputMode = 'decimal';
+    input.autocomplete = 'off';
+    input.setAttribute('aria-label', aria);
+    const u = document.createElement('span');
+    u.textContent = unit;
+    wrap.append(input, u);
+    pair.append(wrap);
+    return input;
+  };
+  const m2 = part(`f-${f.key}`, f.key, '㎡', `${f.label} ㎡`);
+  const py = part(`p-${f.key}`, '', '평', `${f.label} 평`);
+  m2.addEventListener('input', () => { py.value = toPyeong(m2.value); });
+  py.addEventListener('input', () => { m2.value = fromPyeong(py.value); });
+  box.append(label, pair);
+  return box;
+}
+
 function fieldInput(f) {
+  if (f.kind === 'area') return areaInput(f);
   const id = `f-${f.key}`;
   const box = document.createElement('div');
   box.className = 'field';
@@ -551,6 +601,8 @@ function openForm(item = null) {
       input.value = item?.[f.key] ?? '';
       const hint = $(`h-${f.key}`);
       if (hint) hint.textContent = fieldHint(f.kind, input.value);
+      const py = $(`p-${f.key}`);
+      if (py) py.value = toPyeong(input.value);
     }
   }
   form.elements.locationMemo.value = item?.locationMemo ?? '';
@@ -809,12 +861,62 @@ function onDeleteConfirmed() {
 }
 
 // ---------- 시트 접기 ----------
-function onToggleSheet() {
+// 시트 크기: 'min' 제목만 | 'mid' 기본 | 'max' 크게. 손잡이를 끌거나 눌러서 바꿉니다.
+let sheetSize = 'mid';
+let drag = null;
+let justDragged = false;
+
+function setSheetSize(size) {
   const sheet = $('sheet');
-  const collapsed = sheet.dataset.collapsed !== 'true';
-  sheet.dataset.collapsed = String(collapsed);
-  $('sheetToggle').setAttribute('aria-expanded', String(!collapsed));
+  sheetSize = size;
+  sheet.dataset.size = size;
+  sheet.dataset.collapsed = String(size === 'min');
+  sheet.style.height = '';
+  sheet.style.maxHeight = '';
+  $('sheetToggle').setAttribute('aria-expanded', String(size !== 'min'));
   requestAnimationFrame(() => map?.relayout());
+}
+
+function onToggleSheet() {
+  if (justDragged) { // 끌고 난 뒤 따라오는 누름은 무시합니다.
+    justDragged = false;
+    return;
+  }
+  setSheetSize(sheetSize === 'min' ? 'mid' : 'min');
+}
+
+function onSheetDown(ev) {
+  const sheet = $('sheet');
+  drag = { y: ev.clientY, h: sheet.getBoundingClientRect().height, moved: false };
+  $('sheetToggle').setPointerCapture?.(ev.pointerId);
+}
+
+function onSheetMove(ev) {
+  if (!drag) return;
+  const dy = ev.clientY - drag.y;
+  if (!drag.moved && Math.abs(dy) < 6) return;
+  const sheet = $('sheet');
+  drag.moved = true;
+  sheet.dataset.collapsed = 'false'; // 끄는 동안은 내용이 보이게
+  const head = $('sheetToggle').getBoundingClientRect().height;
+  const h = Math.min(Math.max(drag.h - dy, head), window.innerHeight * 0.85);
+  sheet.style.height = `${h}px`;
+  sheet.style.maxHeight = `${h}px`;
+  drag.now = h;
+  drag.head = head;
+}
+
+function onSheetUp() {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  if (!d.moved) return; // 누르기는 click에서 처리합니다.
+  justDragged = true;
+  setTimeout(() => { justDragged = false; }, 400);
+  const vh = window.innerHeight;
+  if (d.now < d.head + 70) setSheetSize('min');
+  else if (d.now > vh * 0.6) setSheetSize('max');
+  else setSheetSize('mid');
 }
 
 // ---------- 시작 ----------
@@ -845,6 +947,10 @@ $('q').addEventListener('input', () => { $('qClear').hidden = !$('q').value; });
 $('qClear').addEventListener('click', onClearSearch);
 $('locate').addEventListener('click', onLocate);
 $('sheetToggle').addEventListener('click', onToggleSheet);
+$('sheetToggle').addEventListener('pointerdown', onSheetDown);
+$('sheetToggle').addEventListener('pointermove', onSheetMove);
+$('sheetToggle').addEventListener('pointerup', onSheetUp);
+$('sheetToggle').addEventListener('pointercancel', onSheetUp);
 $('addBtn').addEventListener('click', () => openForm());
 $('placeAdd').addEventListener('click', addFromPlace);
 $('placeClose').addEventListener('click', hidePlaceCard);

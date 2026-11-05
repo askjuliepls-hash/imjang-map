@@ -127,10 +127,18 @@ export function summaryLine(item, { view = 'date', now = new Date() } = {}) {
   const parts = [];
   if (view === 'date' && regionOf(item)) parts.push(regionOf(item));
   if (view === 'region' && item.visitDate) parts.push(formatVisitDate(item.visitDate, now));
-  if (item.deposit || item.rent) parts.push(`${formatManwon(item.deposit) || '-'} / ${formatManwon(item.rent) || '-'}`);
-  if (item.premium) parts.push(`권리금 ${formatManwon(item.premium)}`);
   if (!isLocated(item)) parts.push('위치 없음');
   return parts.join(' · ');
+}
+
+// 목록에서 한눈에 비교할 금액들. 적은 것만 보여 줍니다.
+export function listingFacts(item) {
+  return [
+    ['보증금', item.deposit],
+    ['월세', item.rent],
+    ['권리금', item.premium],
+    ['예상 순수익', item.netProfit],
+  ].filter(([, v]) => v).map(([label, v]) => ({ label, value: formatManwon(v) }));
 }
 
 export function fieldHint(kind, value) {

@@ -255,6 +255,7 @@ p { margin: 0; }
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .sheet-head {
+  touch-action: none; /* 손잡이를 끌 때 화면이 같이 밀리지 않게 */
   display: grid;
   gap: 8px;
   width: 100%;
@@ -286,6 +287,7 @@ p { margin: 0; }
   padding: 0 max(20px, env(safe-area-inset-right, 0px)) 20px max(20px, env(safe-area-inset-left, 0px));
 }
 .sheet[data-collapsed="true"] .sheet-body { display: none; }
+.sheet[data-size="max"] { max-height: 80vh; max-height: 80dvh; }
 .lead { font-size: 15px; color: var(--ink-2); }
 
 /* 입력과 버튼 */
@@ -407,22 +409,25 @@ p { margin: 0; }
   font-weight: 600;
 }
 .view-tabs button[aria-pressed="true"] { background: var(--surface); color: var(--ink); }
-.list-head { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0 2px; font-size: 14px; font-weight: 700; color: var(--ink-2); }
+.list-head { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--fill); font-size: 14px; font-weight: 700; color: var(--ink-2); }
 .list-head span:last-child { flex: none; font-weight: 500; color: var(--ink-3); }
 .listings { list-style: none; margin: 0; padding: 0; display: grid; }
 .listing {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   width: 100%;
   min-height: 56px;
-  padding: 10px 0;
+  padding: 12px 0;
   border: 0;
   background: none;
   color: var(--ink);
   text-align: left;
 }
 .listing strong { font-size: 16px; font-weight: 600; }
-.listing span { font-size: 14px; color: var(--ink-3); }
+.listing .meta { font-size: 14px; color: var(--ink-3); }
+.facts { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.fact { font-size: 14px; color: var(--ink-3); white-space: nowrap; }
+.fact b { margin-left: 4px; font-weight: 600; color: var(--ink); }
 
 /* 양식과 상세: 지도 위에 온전히 덮는 화면 */
 .screen {
@@ -477,6 +482,7 @@ p { margin: 0; }
 .with-unit span { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-size: 14px; color: var(--ink-3); }
 .hint { min-height: 0; font-size: 14px; font-weight: 600; color: var(--ink-2); }
 .hint:empty { display: none; }
+.area-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .field-error { font-size: 14px; color: var(--fail-text); }
 .location { display: grid; gap: 12px; }
 .loc-pick { display: grid; gap: 4px; }

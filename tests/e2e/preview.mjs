@@ -90,7 +90,7 @@ async function layout(page) {
     const vw = window.innerWidth;
     const visibleInputs = [...document.querySelectorAll('input')].filter((i) => i.offsetParent !== null);
     const small = visibleInputs.filter((i) => parseFloat(getComputedStyle(i).fontSize) < 16).map((i) => i.id);
-    const clipped = [...document.querySelectorAll('.listing strong, .listing span, .btn, .fill-btn, .score, .results strong, .results span, .fab, .form-msg, .next-help, .row p, .list-head span, .view-tabs button')]
+    const clipped = [...document.querySelectorAll('.listing strong, .btn, .fill-btn, .score, .results strong, .results span, .fab, .form-msg, .next-help, .row p, .list-head span, .view-tabs button, .listing .meta, .fact')]
       .filter((el) => el.offsetParent !== null && el.scrollWidth > el.clientWidth + 1)
       .map((el) => `${el.className}:${el.textContent.trim().slice(0, 16)}`);
     const de = document.documentElement;
@@ -213,7 +213,9 @@ try {
     await page.type('#f-premium', '15000');
     expect(s, '권리금 입력 중 억 단위로 보임', (await text(page, '#h-premium')) === '1억 5,000만원');
     await page.type('#f-areaExclusive', '33');
-    expect(s, '면적 입력 중 평으로 보임', (await text(page, '#h-areaExclusive')) === '약 10.0평');
+    expect(s, '㎡를 적으면 평이 채워짐', (await page.$eval('#p-areaExclusive', (el) => el.value)) === '10.0');
+    await page.type('#p-areaSupply', '25');
+    expect(s, '평을 적으면 ㎡가 채워짐', (await page.$eval('#f-areaSupply', (el) => el.value)) === '82.65');
     await page.type('#f-dispensing', '신규');
     await page.type('#f-review', '<b>유동인구</b> 많음\n둘째 줄');
     await shot(page, 'b-form-filled');
@@ -245,6 +247,7 @@ try {
     await shot(page2, 'b-detail');
     await page2.click('#editBtn');
     expect(s, '수정 양식에 값이 채워짐', (await page2.$eval('#f-premium', (el) => el.value)) === '15000' && (await text(page2, '#h-premium')) === '1억 5,000만원');
+    expect(s, '수정 양식에 평도 채워짐', (await page2.$eval('#p-areaSupply', (el) => el.value)) === '25.0');
     await page2.$eval('#f-premium', (el) => { el.value = ''; });
     await page2.type('#f-premium', '20000');
     await page2.click('#saveListing');
@@ -374,7 +377,7 @@ try {
       const mk = (id, name, visitDate, region, address = '') => ({ id, name, visitDate, region, address, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', lat: 37.56, lng: 126.97 });
       localStorage.setItem('imjang-map:listings', JSON.stringify({ schemaVersion: 1, data: { items: [
         mk('a', '오래된 임장', '2025-03-02', '서울 중구'),
-        mk('b', '최근 임장', '2026-11-03', '경기 성남시 중원구'),
+        { ...mk('b', '최근 임장', '2026-11-03', '경기 성남시 중원구'), deposit: '5000', rent: '300', premium: '15000', netProfit: '1200' },
         mk('c', '같은 날 임장', '2026-11-03', '서울 중구'),
         mk('d', '아직 안 간 곳', '', '', '경기 성남시 수정구 가짜동 2'),
         mk('e', '지역 모름', '', ''),
@@ -387,6 +390,24 @@ try {
     expect(s, '임장 날짜별: 최근 날짜부터, 임장 전은 맨 끝', dateHeads.length === 3 && dateHeads[0].includes('11월 3일') && dateHeads[1].startsWith('2025년') && dateHeads[2] === '임장 전', dateHeads.join(' / '));
     await layoutExpect(page, s);
     await shot(page, 'k-by-date');
+    // 재발 방지(2026-11-05): 손잡이가 끌릴 것처럼 생겼는데 끌리지 않던 문제
+    const dragSheet = async (dy) => {
+      const r = await page.$eval('#sheetToggle', (el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + 12 }; });
+      await page.mouse.move(r.x, r.y);
+      await page.mouse.down();
+      await page.mouse.move(r.x, r.y + dy / 2);
+      await page.mouse.move(r.x, r.y + dy);
+      await page.mouse.up();
+      await wait(60);
+      return page.$eval('#sheet', (el) => el.dataset.size);
+    };
+    const midH = await page.$eval('#sheet', (el) => el.getBoundingClientRect().height);
+    expect(s, '손잡이를 위로 끌면 목록이 커짐', (await dragSheet(-260)) === 'max' && (await page.$eval('#sheet', (el) => el.getBoundingClientRect().height)) > midH);
+    await shot(page, 'k-sheet-max');
+    expect(s, '손잡이를 아래로 끌면 기본 크기', (await dragSheet(240)) === 'mid');
+    expect(s, '더 끌어내리면 제목만 남음', (await dragSheet(300)) === 'min' && !(await visible(page, '#list')));
+    await page.click('#sheetToggle');
+    expect(s, '누르면 다시 열림', (await page.$eval('#sheet', (el) => el.dataset.size)) === 'mid' && await visible(page, '#list'));
     await page.click('#viewTabs [data-view="region"]');
     const regionHeads = await heads();
     expect(s, '지역별: 가나다순, 주소로 지역을 읽고, 모르면 맨 끝', regionHeads.join() === '경기 성남시 수정구,경기 성남시 중원구,서울 중구,지역 없음', regionHeads.join(' / '));
