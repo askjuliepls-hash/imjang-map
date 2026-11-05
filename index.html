@@ -13,6 +13,7 @@
 {
   "imports": {
     "./js/config.js": "./js/config.js?v=0.1.1-1105b",
+    "./js/lib/checks.js": "./js/lib/checks.js?v=0.1.1-1105b",
     "./js/lib/device.js": "./js/lib/device.js?v=0.1.1-1105b",
     "./js/lib/format.js": "./js/lib/format.js?v=0.1.1-1105b",
     "./js/lib/messages.js": "./js/lib/messages.js?v=0.1.1-1105b",
@@ -55,17 +56,23 @@
       <span class="grabber" aria-hidden="true"></span>
       <span class="sheet-row">
         <span class="sheet-title">연결 점검</span>
-        <span class="score" id="score" data-done="false">3개 중 0개 통과</span>
+        <span class="score" id="score" data-done="false">연결 확인 중</span>
       </span>
     </button>
     <div class="sheet-body" id="sheetBody">
-      <p class="lead">3개가 모두 통과하면 연결 확인이 끝나요.</p>
+      <div class="next" id="next" hidden>
+        <p class="form-msg" id="nextMsg" role="status" hidden></p>
+        <div class="next-title" id="nextTitle"></div>
+        <p class="next-help" id="nextHelp"></p>
+      </div>
       <ol class="checks">
-        <li class="check" data-check="map" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">지도</div><p class="msg">지도를 불러오는 중이에요.</p></div><span class="state sr-only">대기</span></li>
-        <li class="check" data-check="search" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">장소 검색</div><p class="msg">검색창에 아무 장소나 검색해 보세요.</p></div><span class="state sr-only">대기</span></li>
-        <li class="check" data-check="gps" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">내 위치</div><p class="msg">'내 위치' 버튼을 눌러보세요.</p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="standalone" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">홈 화면 앱으로 열림</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="map" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">지도</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="search" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">장소 검색</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="gps" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">내 위치</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
       </ol>
-
+      <p class="lead" id="lead"></p>
+      <p class="diag" id="diag"></p>
       <div class="foot">
         <span>버전 <span id="ver"></span></span>
       </div>

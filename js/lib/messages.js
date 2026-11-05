@@ -30,3 +30,25 @@ export function geoErrorMessage(code) {
       return '위치를 가져오지 못했어요.';
   }
 }
+
+// 아직 앱이 아닐 때 카드에 보여 줄 안내입니다.
+export function standaloneHelp(place) {
+  if (place === 'ios-safari') {
+    return [
+      '아직 Safari예요. 이미 쓰던 아이콘이 있으면 그 아이콘으로 여세요. 저장한 내용이 있으면 아이콘을 지우지 마세요.',
+      '아이콘이 없으면 아래 순서로 추가해 주세요.',
+      '1. 화면의 … 또는 공유 버튼 누르기',
+      "2. '공유' 누르기 (바로 공유 창이 뜨면 건너뛰기)",
+      "3. 아래로 내려 '홈 화면에 추가' 누르기",
+      "4. '웹 앱으로 열기' 켜고 '추가' 누르기",
+    ].join('\n');
+  }
+  return '폰의 기본 브라우저(아이폰은 Safari)에서 askjuliepls-hash.github.io/imjang-map 주소를 열어 홈 화면에 추가해 주세요.';
+}
+
+export function kakaoInappMessage(ua = '') {
+  if (/Android/i.test(ua)) {
+    return "카카오톡 안에서 열렸어요. 오른쪽 아래 메뉴의 '다른 브라우저로 열기'를 눌러 주세요.";
+  }
+  return "카카오톡 안에서 열렸어요. 여기 저장한 내용은 다른 곳에서 안 보여요. 위쪽 가운데 주소를 눌러 '다른 브라우저로 열기'로 Safari에서 열어 주세요.";
+}

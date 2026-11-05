@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  kakaoLoadMessage, geoErrorMessage,
+  kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage,
 } from '../../js/lib/messages.js';
 
 test('카카오 로드 실패 안내에 실제 앱 도메인이 들어간다', () => {
@@ -24,4 +24,16 @@ test('위치 권한 거부는 아이폰 설정 경로를 알려준다', () => {
   assert.match(geoErrorMessage(1), /위치 서비스/);
   assert.match(geoErrorMessage(1), /Safari 웹 사이트/);
   assert.notEqual(geoErrorMessage(2), geoErrorMessage(3));
+});
+
+test('Safari 안내에는 추가 순서가, 그 밖에는 기본 브라우저 안내가 나온다', () => {
+  assert.match(standaloneHelp('ios-safari'), /홈 화면에 추가/);
+  assert.match(standaloneHelp('ios-safari'), /지우지/);
+  assert.match(standaloneHelp('other'), /기본 브라우저/);
+  assert.doesNotMatch(standaloneHelp('other'), /공유/);
+});
+
+test('카카오톡 안내는 아이폰과 안드로이드가 다르다', () => {
+  assert.match(kakaoInappMessage('iPhone'), /Safari/);
+  assert.match(kakaoInappMessage('Android'), /오른쪽 아래/);
 });
