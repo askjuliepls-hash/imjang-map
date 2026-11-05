@@ -20,7 +20,8 @@ export function nextStep(ids, states) {
 
 // 다시 열었을 때 이어서 보여 줄 결과를 고릅니다.
 // 진행 중(half)을 되살리면 요청도 없이 '찾는 중'에 갇히므로 끝난 결과만 씁니다.
-const RESTORABLE = { search: ['ok', 'fail'], gps: ['ok', 'fail'] };
+// 내보내기의 half는 '내보낸 뒤 가져오기를 기다리는 중'이라 예외입니다.
+const RESTORABLE = { search: ['ok', 'fail'], gps: ['ok', 'fail'], export: ['half', 'ok'], import: ['ok'] };
 
 export function restoreResults(record, { version, isApp }) {
   if (!isApp || !record) return { results: {}, versionChanged: false };
@@ -31,4 +32,13 @@ export function restoreResults(record, { version, isApp }) {
     if (r && allowed.includes(r.state)) results[id] = r;
   }
   return { results, versionChanged: false };
+}
+
+// 저장 유지 판정. 다시 불러오기 표시가 있는 로드는 통과에 세지 않고, 표시 없이 열린 로드에서 통과합니다.
+// 완전 종료를 코드로 증명할 방법은 없어서, 다시 열 때의 nav type을 진단 줄에 남깁니다.
+export function evaluatePersist(test, navType) {
+  if (!test) return { test: null, state: 'wait', phase: 'none' };
+  if (test.reopenSeen) return { test, state: 'ok', phase: 'reopened' };
+  if (test.expectReload) return { test: { ...test, expectReload: false }, state: 'half', phase: 'reloaded' };
+  return { test: { ...test, reopenSeen: true, reopenNav: navType }, state: 'ok', phase: 'reopened' };
 }

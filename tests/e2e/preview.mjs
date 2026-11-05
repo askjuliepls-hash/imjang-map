@@ -3,7 +3,7 @@
 // 사용법: npm run preview -- [캡처 저장 폴더]
 import puppeteer from 'puppeteer-core';
 import http from 'node:http';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +50,23 @@ const mocks = {
   configEmpty: await readFile(join(ROOT, 'tests/e2e/mocks/config-empty.js'), 'utf8'),
 };
 
+const interceptFor = (mode, requests = []) => (req) => {
+  const u = new URL(req.url());
+  requests.push(u.pathname + u.search);
+  if (mode.abort && mode.abort.test(u.pathname)) return req.abort();
+  const js = (body) => req.respond({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
+  if (u.hostname === 'dapi.kakao.com') {
+    if (mode.kakao === 'mock') return js(mocks.kakao);
+    if (mode.kakao === '503') return req.respond({ status: 503, contentType: 'text/plain', body: 'domain not registered' });
+    return req.abort();
+  }
+  if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'mock') return js(mocks.config);
+  if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'empty') return js(mocks.configEmpty);
+  if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'broken') return js('export const NOT_THE_KEY = 1;');
+  if (u.origin !== ORIGIN) return req.abort();
+  return req.continue();
+};
+
 // mode: kakao 'mock' | '503' | 'block', config 'mock' | 'empty' | 'real' | 'broken',
 //       abort 요청 경로에 대한 정규식(모듈 실패 흉내), init 페이지마다 먼저 실행할 함수(들), ua, viewport
 async function openPage(browser, mode, scenario) {
@@ -64,28 +81,65 @@ async function openPage(browser, mode, scenario) {
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   const requests = [];
   await page.setRequestInterception(true);
-  page.on('request', (req) => {
-    const u = new URL(req.url());
-    requests.push(u.pathname + u.search);
-    if (mode.abort && mode.abort.test(u.pathname)) return req.abort();
-    const js = (body) => req.respond({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
-    if (u.hostname === 'dapi.kakao.com') {
-      if (mode.kakao === 'mock') return js(mocks.kakao);
-      if (mode.kakao === '503') return req.respond({ status: 503, contentType: 'text/plain', body: 'domain not registered' });
-      return req.abort();
-    }
-    if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'mock') return js(mocks.config);
-    if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'empty') return js(mocks.configEmpty);
-    if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'broken') return js('export const NOT_THE_KEY = 1;');
-    if (u.origin !== ORIGIN) return req.abort();
-    return req.continue();
-  });
+  page.on('request', interceptFor(mode, requests));
   return { context, page, errors, requests, scenario };
 }
 
 // 홈 화면 앱으로 열린 상태를 흉내 냅니다. 실제 아이폰 동작의 증거는 아니고, 앱 쪽 분기만 확인합니다.
 const asApp = () => Object.defineProperty(window.navigator, 'standalone', { get: () => true, configurable: true });
 const CHECK_COUNT = (await readFile(join(ROOT, 'index.html'), 'utf8')).match(/data-check="/g).length;
+// 가짜 공유 창: 받은 파일을 그대로 적어 둡니다. window.__shareMode로 거절·취소를 흉내 냅니다.
+const fakeShare = () => {
+  window.__shared = [];
+  navigator.canShare = () => window.__canShare !== false;
+  navigator.share = async (d) => {
+    if (window.__shareMode) throw new DOMException('fake', window.__shareMode);
+    const f = d.files[0];
+    window.__shared.push({ keys: Object.keys(d), name: f.name, type: f.type, text: await f.text() });
+  };
+};
+// 내려받기를 가로채 파일 내용을 확인합니다.
+const hookDownload = () => {
+  window.__downloads = [];
+  const create = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (b) => { window.__lastBlob = b; return create(b); };
+  HTMLAnchorElement.prototype.click = function click() { window.__downloads.push({ name: this.download, blob: window.__lastBlob }); };
+};
+const lastDownload = (page) => page.evaluate(async () => {
+  const d = window.__downloads.at(-1);
+  if (!d) return null;
+  const b = new Uint8Array(await d.blob.arrayBuffer());
+  return { name: d.name, first: b[0], text: new TextDecoder().decode(b) };
+});
+const lastShared = (page) => page.evaluate(() => window.__shared.at(-1) || null);
+let fileNo = 0;
+async function pickFile(page, content) {
+  fileNo += 1;
+  const path = join(OUT, `pick-${fileNo}.json`);
+  await writeFile(path, content);
+  const [chooser] = await Promise.all([page.waitForFileChooser({ timeout: 5000 }), page.click('#importLabel')]);
+  await chooser.accept([path]);
+  await new Promise((r) => setTimeout(r, 200));
+}
+const visible = (page, sel) => page.$eval(sel, (el) => !el.hidden && el.offsetParent !== null);
+const nextMsg = (page) => page.$eval('#nextMsg', (el) => el.textContent);
+// 저장까지 통과한 상태로 바로 시작합니다.
+async function seedToExport(page, extra = {}) {
+  await page.goto(BASE, { waitUntil: 'load' });
+  const version = await page.$eval('#ver', (el) => el.textContent);
+  await page.evaluate((v, more) => localStorage.setItem('imjang-map:check', JSON.stringify({
+    schemaVersion: 1,
+    data: {
+      version: v,
+      test: { code: '1234', savedAt: new Date().toISOString(), expectReload: false, reopenSeen: true, reopenNav: 'navigate' },
+      backup: null,
+      results: { search: { state: 'ok', msg: '검색' }, gps: { state: 'ok', msg: '위치' } },
+      ...more,
+    },
+  })), version, extra);
+  await page.reload({ waitUntil: 'load' });
+  await waitCheck(page, 'map', 'ok');
+}
 const cardTitle = (page) => page.$eval('#nextTitle', (el) => el.textContent);
 const record = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('imjang-map:check')));
 const checkState = (page, id) => page.$eval(`[data-check="${id}"]`, (li) => li.dataset.state);
@@ -97,7 +151,7 @@ async function layout(page) {
     const vw = window.innerWidth;
     const visibleInputs = [...document.querySelectorAll('input')].filter((i) => i.offsetParent !== null);
     const small = visibleInputs.filter((i) => parseFloat(getComputedStyle(i).fontSize) < 16).map((i) => i.id);
-    const clipped = [...document.querySelectorAll('.check .name, .check .msg, .btn, .score, .results strong, .results span, .fab, .form-msg, .next-title, .next-help, .diag')]
+    const clipped = [...document.querySelectorAll('.check .name, .check .msg, .btn, .score, .results strong, .results span, .fab, .form-msg, .next-title, .next-help, .diag, label.btn')]
       .filter((el) => el.offsetParent !== null && el.scrollWidth > el.clientWidth + 1)
       .map((el) => `${el.className}:${el.textContent.trim().slice(0, 16)}`);
     const de = document.documentElement;
@@ -170,7 +224,7 @@ try {
 
   // B. 홈 화면 앱으로 열려 모두 통과하는 경우 (가짜 지도, 진짜 localStorage, 새 컨텍스트)
   await scenario('B 모두 통과', async (s) => {
-    const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
+    const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, fakeShare] }, s);
     await page.goto(BASE, { waitUntil: 'load' });
     expect(s, '시작할 때 기록이 비어 있음', (await record(page)) === null);
     expect(s, '홈 화면 앱 통과', await waitCheck(page, 'standalone', 'ok'));
@@ -191,21 +245,61 @@ try {
     expect(s, '내 위치 점 표시', !!(await page.$('.me-dot')));
     expect(s, '결과 안내가 스크롤 없이 보임', await inViewSoon(page, '#nextMsg'));
     const total = CHECK_COUNT;
-    expect(s, `점수 ${total}/${total}`, (await page.$eval('#score', (el) => el.textContent)) === `${total}개 모두 통과`);
-    expect(s, '카드가 모두 통과를 안내', (await cardTitle(page)) === `${total}개 모두 통과했어요`);
+    expect(s, '카드가 저장을 안내', (await cardTitle(page)) === '이 기기에 저장 후 유지');
+    expect(s, '저장 버튼이 스크롤 없이 보임', await inView(page, '#saveBtn'));
     await layoutExpect(page, s);
-    await shot(page, 'b3-all-pass');
-    await page.reload({ waitUntil: 'load' });
+    await shot(page, 'b2-save-next');
+    await page.click('#saveBtn');
+    expect(s, '저장하면 진행 중', (await checkState(page, 'persist')) === 'half');
+    const code = (await record(page)).data.test.code;
+    const helpNow = await page.$eval('#nextHelp', (el) => el.textContent);
+    expect(s, '코드와 안내가 스크롤 없이 보임', helpNow.includes(code) && helpNow.includes('다시 불러오기') && await inView(page, '#nextHelp'), helpNow);
+    expect(s, '저장 뒤에는 큰 버튼이 없음(다음 동작은 앱 밖)', !(await visible(page, '#saveBtn')));
+    await shot(page, 'b2b-saved');
+    await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.click('#topReload')]);
     await waitCheck(page, 'map', 'ok');
-    expect(s, '다시 읽어도 결과가 유지됨', (await checkState(page, 'search')) === 'ok' && (await checkState(page, 'gps')) === 'ok');
-    expect(s, '다시 읽어도 모두 통과', (await page.$eval('#score', (el) => el.textContent)) === `${total}개 모두 통과`);
-    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
-    await shot(page, 'b4-dark');
-    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
-    await page.click('#sheetToggle');
-    expect(s, '점검 접으면 지도가 커짐', await page.$eval('#sheetBody', (el) => el.offsetParent === null));
-    await shot(page, 'b5-collapsed');
-    await page.click('#sheetToggle');
+    expect(s, '다시 불러온 뒤 코드가 같고 아직 진행 중', (await checkState(page, 'persist')) === 'half' && (await page.$eval('#nextHelp', (el) => el.textContent)).includes(code));
+    await shot(page, 'b2c-reloaded');
+    // 앱을 닫았다 여는 것에 가깝게: 같은 저장 공간의 새 페이지로 엽니다.
+    const page2 = await context.newPage();
+    await page2.setUserAgent(IPHONE_UA);
+    await page2.setViewport(PHONE);
+    await page2.evaluateOnNewDocument(asApp);
+    await page2.evaluateOnNewDocument(fakeShare);
+    await page2.setRequestInterception(true);
+    page2.on('request', interceptFor({ kakao: 'mock', config: 'mock' }));
+    await page.close();
+    await page2.goto(BASE, { waitUntil: 'load' });
+    await waitCheck(page2, 'map', 'ok');
+    expect(s, '새 페이지로 열면 저장 유지 통과', (await checkState(page2, 'persist')) === 'ok' && (await page2.$eval('[data-check="persist"] .msg', (el) => el.textContent)).includes(code));
+    expect(s, '카드가 내보내기를 안내', (await cardTitle(page2)) === '백업 파일 내보내기');
+    expect(s, '내보내기 안내가 카톡 나와의 채팅', (await page2.$eval('#nextHelp', (el) => el.textContent)).includes('나와의 채팅'));
+    expect(s, '내보내기 버튼이 스크롤 없이 보임', await inView(page2, '#exportBtn'));
+    await shot(page2, 'b6-export-next');
+    await page2.click('#exportBtn');
+    await new Promise((r) => setTimeout(r, 150));
+    expect(s, '내보내면 진행 중', (await checkState(page2, 'export')) === 'half');
+    expect(s, '카드가 가져오기를 안내', (await cardTitle(page2)) === '백업 파일 가져오기');
+    expect(s, '가져오기 버튼이 스크롤 없이 보임', await inView(page2, '#importLabel'));
+    await layoutExpect(page2, s);
+    await shot(page2, 'b7-import-next');
+    const shared = await lastShared(page2);
+    await pickFile(page2, shared.text);
+    expect(s, '내보낸 파일을 고르면 두 행 통과', (await checkState(page2, 'export')) === 'ok' && (await checkState(page2, 'import')) === 'ok');
+    expect(s, `점수 ${total}/${total}`, (await page2.$eval('#score', (el) => el.textContent)) === `${total}개 모두 통과`);
+    expect(s, '카드가 모두 통과를 안내', (await cardTitle(page2)) === `${total}개 모두 통과했어요`);
+    expect(s, '결과 안내가 스크롤 없이 보임(가져오기)', await inViewSoon(page2, '#nextMsg'));
+    await layoutExpect(page2, s);
+    await shot(page2, 'b3-all-pass');
+    await page2.reload({ waitUntil: 'load' });
+    await waitCheck(page2, 'map', 'ok');
+    expect(s, '다시 읽어도 모든 결과가 유지됨', (await page2.$eval('#score', (el) => el.textContent)) === `${total}개 모두 통과`);
+    await page2.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+    await shot(page2, 'b4-dark');
+    await page2.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+    await page2.click('#sheetToggle');
+    expect(s, '점검 접으면 지도가 커짐', await page2.$eval('#sheetBody', (el) => el.offsetParent === null));
+    await shot(page2, 'b5-collapsed');
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
   });
@@ -230,6 +324,7 @@ try {
     expect(s, '대본 순서대로 검색이 됨', await waitCheck(page, 'search', 'ok'));
     await page.click('#locate');
     expect(s, '대본 순서대로 위치가 됨', await waitCheck(page, 'gps', 'ok'));
+    expect(s, '대본 순서대로 가면 저장 시험에 닿음', await visible(page, '#saveBtn'));
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
   });
@@ -251,7 +346,7 @@ try {
 
   // C. 카카오가 도메인 미등록으로 거절하는 경우 (503)
   await scenario('C 지도 거절', async (s) => {
-    const { context, page, errors } = await openPage(browser, { kakao: '503', config: 'mock', init: asApp }, s);
+    const { context, page, errors } = await openPage(browser, { kakao: '503', config: 'mock', init: [asApp, fakeShare] }, s);
     await page.goto(BASE, { waitUntil: 'load' });
     expect(s, '지도 실패', await waitCheck(page, 'map', 'fail'));
     const msg = await page.$eval('[data-check="map"] .msg', (el) => el.textContent);
@@ -259,7 +354,9 @@ try {
     expect(s, '카드는 검색을 건너뛰고 내 위치', (await cardTitle(page)) === '내 위치');
     await page.click('#locate');
     expect(s, '지도가 없어도 위치 점검은 독립적으로 작동', await waitCheck(page, 'gps', 'ok'));
-    expect(s, '실패만 남으면 카드가 안내', (await cardTitle(page)) === '실패한 점검이 있어요');
+    expect(s, '지도가 없어도 저장 시험으로 넘어감', (await cardTitle(page)) === '이 기기에 저장 후 유지');
+    await page.click('#saveBtn');
+    expect(s, '지도가 없어도 저장이 됨', (await checkState(page, 'persist')) === 'half');
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await shot(page, 'c-map-rejected');
     await context.close();
@@ -272,6 +369,7 @@ try {
       await page.goto(BASE, { waitUntil: 'load' });
       await waitCheck(page, 'map', 'ok');
       expect(s, '카드가 홈 화면 안내', (await cardTitle(page)) === '홈 화면 앱으로 열림');
+      expect(s, '저장·백업 버튼이 안 보임', !(await visible(page, '#saveBtn')) && !(await visible(page, '#exportBtn')) && !(await visible(page, '#importLabel')));
       const help = await page.$eval('#nextHelp', (el) => el.textContent);
       expect(s, 'Safari면 추가 순서를 안내', help.includes('홈 화면에 추가') && help.includes('웹 앱으로 열기'), help);
       expect(s, '지우지 말라는 안내', help.includes('지우지'), help);
@@ -402,6 +500,175 @@ try {
       expect(s, '스크립트 오류 없음(거부)', errors.length === 0, errors.join(' | '));
       await context.close();
     }
+  });
+
+  // D. 가져오기 실패: 잘못된 파일을 골라도 지금 내용은 그대로입니다.
+  await scenario('D 가져오기 실패', async (s) => {
+    const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, fakeShare] }, s);
+    await seedToExport(page);
+    await page.click('#exportBtn');
+    await new Promise((r) => setTimeout(r, 150));
+    expect(s, '가져오기 버튼이 스크롤 없이 보임', await inView(page, '#importLabel'));
+    const before = await record(page);
+    const shared = await lastShared(page);
+    const good = JSON.parse(shared.text);
+    const cases = [
+      ['깨진 파일', '{ 잘린 파일', '손상', 'fail'],
+      ['다른 앱', JSON.stringify({ app: 'other', schemaVersion: 1 }), '백업 파일이 아니에요', 'fail'],
+      ['높은 버전', JSON.stringify({ ...good, schemaVersion: 99 }), '더 새 버전', 'fail'],
+      ['최상위 null', 'null', '백업 파일이 아니에요', 'fail'],
+      ['probe 없음', JSON.stringify({ app: 'imjang-map', schemaVersion: 1 }), '이번에 내보낸 파일이 아니에요', 'half'],
+    ];
+    for (const [what, content, word, state] of cases) {
+      await pickFile(page, content);
+      const msg = await nextMsg(page);
+      expect(s, `${what}: 이유가 보이고 상태가 맞음`, msg.includes(word) && (await checkState(page, 'import')) === state && await inViewSoon(page, '#nextMsg'), msg);
+      const now = await record(page);
+      expect(s, `${what}: 저장값이 그대로`, JSON.stringify(now.data.test) === JSON.stringify(before.data.test) && JSON.stringify(now.data.backup) === JSON.stringify(before.data.backup));
+    }
+    await shot(page, 'd-import-failed');
+    const [chooser] = await Promise.all([page.waitForFileChooser({ timeout: 5000 }), page.click('#importLabel')]);
+    const scoreBefore = await page.$eval('#score', (el) => el.textContent);
+    await chooser.cancel();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(s, '선택을 취소하면 변화 없음', (await page.$eval('#score', (el) => el.textContent)) === scoreBefore);
+    await pickFile(page, shared.text);
+    expect(s, '고친 파일을 고르면 통과', (await checkState(page, 'import')) === 'ok' && (await checkState(page, 'export')) === 'ok');
+    const first = await page.$eval('[data-check="import"] .msg', (el) => el.textContent);
+    await new Promise((r) => setTimeout(r, 1100));
+    await page.$eval('#importLabel', (el) => el.scrollIntoView({ block: 'nearest' }));
+    const [c2] = await Promise.all([page.waitForFileChooser({ timeout: 5000 }), page.click('#importLabel')]);
+    fileNo += 1;
+    const again = join(OUT, `pick-${fileNo}.json`);
+    await writeFile(again, shared.text);
+    await c2.accept([again]);
+    await new Promise((r) => setTimeout(r, 200));
+    const second = await page.$eval('[data-check="import"] .msg', (el) => el.textContent);
+    expect(s, '같은 파일을 다시 고를 수 있고 표시 시각이 바뀜', first !== second, `${first} / ${second}`);
+    await pickFile(page, '{ 깨진');
+    expect(s, '통과 뒤 잘못된 파일은 빨간 실패로 안 내려감', (await checkState(page, 'import')) === 'ok' && (await page.$eval('#nextMsg', (el) => el.dataset.tone)) === 'info');
+    expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
+    await context.close();
+  });
+
+  // E. 내보내기 갈래 (가짜 공유 창)
+  await scenario('E 내보내기 갈래', async (s) => {
+    {
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, fakeShare, hookDownload] }, s);
+      await seedToExport(page);
+      await page.click('#exportBtn');
+      await new Promise((r) => setTimeout(r, 150));
+      const f = await lastShared(page);
+      const body = JSON.parse(f.text);
+      expect(s, '파일 이름·형식·내용이 맞고 files 외 값이 없음', /^imjang-test-\d{4}-\d{2}-\d{2}\.json$/.test(f.name) && f.type === 'application/json' && body.purpose === 'connection-test' && f.keys.join() === 'files', JSON.stringify(f.keys));
+      expect(s, '공유 성공만으로는 통과가 아님', (await checkState(page, 'export')) === 'half');
+      expect(s, '진단 줄에 경로가 보임', (await page.$eval('#diag', (el) => el.textContent)).includes('내보내기 경로 share'));
+      await pickFile(page, f.text);
+      await page.evaluate(() => { window.__shareMode = 'UnknownError'; });
+      await page.click('#exportBtn');
+      await new Promise((r) => setTimeout(r, 150));
+      expect(s, '통과 뒤 재내보내기 실패에 통과 개수가 안 내려감', (await checkState(page, 'export')) === 'ok' && (await page.$eval('#nextMsg', (el) => el.dataset.tone)) === 'info');
+      expect(s, '스크립트 오류 없음(공유)', errors.length === 0, errors.join(' | '));
+      await context.close();
+    }
+    {
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, fakeShare, hookDownload] }, s);
+      await seedToExport(page);
+      await page.evaluate(() => { window.__shareMode = 'AbortError'; });
+      await page.click('#exportBtn');
+      await new Promise((r) => setTimeout(r, 150));
+      const tone = await page.$eval('#nextMsg', (el) => el.dataset.tone);
+      expect(s, '닫으면 상태 그대로, 빨간 안내 없음', (await checkState(page, 'export')) === 'wait' && tone === 'info' && (await nextMsg(page)).includes('공유 창이 닫혔어요'));
+      expect(s, '닫았을 때 다운로드 없음', (await lastDownload(page)) === null);
+      await shot(page, 'e-share-closed');
+      // 카톡이 취소로 보고해도 파일이 왔으면 바로 가져올 수 있어야 합니다.
+      expect(s, '닫은 뒤에도 가져오기를 고를 수 있음', await visible(page, '#importLabel'));
+      await page.evaluate(() => { window.__shareMode = 'NotAllowedError'; });
+      await page.click('#exportBtn');
+      await new Promise((r) => setTimeout(r, 150));
+      expect(s, '아이폰 첫 거절은 다운로드로 자동 전환 안 함', (await lastDownload(page)) === null && (await checkState(page, 'export')) === 'wait' && (await nextMsg(page)).includes('한 번 더'));
+      await page.click('#exportBtn');
+      await new Promise((r) => setTimeout(r, 150));
+      expect(s, '두 번째 거절은 실패 표시', (await checkState(page, 'export')) === 'fail' && (await lastDownload(page)) === null);
+      expect(s, '실패 안내가 스크롤 없이 보임', await inViewSoon(page, '#nextMsg'));
+      await shot(page, 'e-share-failed');
+      await page.click('#downloadBtn');
+      const d = await lastDownload(page);
+      expect(s, '파일로 바로 저장: 파일이 생기고 UTF-8, BOM 없음', !!d && /\.json$/.test(d.name) && d.first === 0x7b && d.text.includes('약국 임장'), JSON.stringify(d));
+      await context.close();
+    }
+    {
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, fakeShare, hookDownload, () => { window.__canShare = false; }] }, s);
+      await seedToExport(page);
+      await page.click('#exportBtn');
+      await new Promise((r) => setTimeout(r, 150));
+      expect(s, '공유를 못 하면 파일로 저장', !!(await lastDownload(page)) && (await lastShared(page)) === null);
+      await context.close();
+    }
+    {
+      const ua = 'Mozilla/5.0 (Linux; Android 14; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', ua, init: [asApp, fakeShare, hookDownload] }, s);
+      await seedToExport(page);
+      expect(s, '안드로이드 안내는 카톡이 아님', (await page.$eval('#nextHelp', (el) => el.textContent)).includes('파일이 저장돼요'));
+      await page.click('#exportBtn');
+      await new Promise((r) => setTimeout(r, 150));
+      expect(s, '안드로이드는 공유를 안 부르고 파일이 생김', !!(await lastDownload(page)) && (await lastShared(page)) === null);
+      await context.close();
+    }
+  });
+
+  // G. 저장이 막힌 경우
+  await scenario('G 저장 실패', async (s) => {
+    const failing = [
+      ['공간 부족', () => { Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); }; }, '가득'],
+      ['접근 거부', () => { Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('no', 'SecurityError'); } }); }, '막혀'],
+      ['저장소 없음', () => { Object.defineProperty(window, 'localStorage', { get: () => null }); }, '막혀'],
+    ];
+    for (const [what, init, word] of failing) {
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, fakeShare, hookDownload, init] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      expect(s, `${what}: 지도는 계속 됨`, await waitCheck(page, 'map', 'ok'));
+      await page.type('#q', '테스트 장소');
+      await page.keyboard.press('Enter');
+      await waitCheck(page, 'search', 'ok');
+      await page.click('#results button');
+      await page.click('#locate');
+      await waitCheck(page, 'gps', 'ok');
+      if (await visible(page, '#saveBtn')) await page.click('#saveBtn');
+      expect(s, `${what}: 저장 행 실패`, (await checkState(page, 'persist')) === 'fail');
+      const msg = await page.$eval('[data-check="persist"] .msg', (el) => el.textContent);
+      expect(s, `${what}: 이유가 맞고 성공 문구 없음`, msg.includes(word) && !msg.includes('코드'), msg);
+      expect(s, `${what}: 안내가 스크롤 없이 보임`, await inViewSoon(page, '#nextMsg'));
+      await page.click('#exportBtn');
+      await new Promise((r) => setTimeout(r, 150));
+      expect(s, `${what}: 백업은 계속 됨`, !!(await lastShared(page)));
+      expect(s, `${what}: 스크립트 오류 없음`, errors.length === 0, errors.join(' | '));
+      if (what === '공간 부족') await shot(page, 'g-storage-full');
+      await context.close();
+    }
+    // 실제로 채워서 기존 값이 그대로인지 봅니다.
+    const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, fakeShare] }, s);
+    await page.goto(BASE, { waitUntil: 'load' });
+    await waitCheck(page, 'map', 'ok');
+    const filled = await page.evaluate(() => {
+      localStorage.setItem('other-app', 'keep');
+      let chunk = 'x'.repeat(1024 * 1024);
+      let i = 0;
+      while (chunk.length > 8) {
+        try { localStorage.setItem(`fill-${i++}`, chunk); } catch { chunk = chunk.slice(0, chunk.length / 2); }
+      }
+      return i;
+    });
+    await page.type('#q', '테스트 장소');
+    await page.keyboard.press('Enter');
+    await waitCheck(page, 'search', 'ok');
+    await page.click('#results button');
+    await page.click('#locate');
+    await waitCheck(page, 'gps', 'ok');
+    await page.click('#saveBtn');
+    expect(s, '실제로 가득 차면 저장 행 실패', (await checkState(page, 'persist')) === 'fail', String(filled));
+    expect(s, '가득 차도 다른 값은 그대로', (await page.evaluate(() => localStorage.getItem('other-app'))) === 'keep');
+    await context.close();
   });
 
   // I. 홈 화면 설정: 크롬이 manifest를 제대로 읽는지와 아이콘 응답 (아이폰 동작의 증거는 아님)

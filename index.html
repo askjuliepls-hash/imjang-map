@@ -15,6 +15,7 @@
 {
   "imports": {
     "./js/config.js": "./js/config.js?v=0.1.2-1105a",
+    "./js/lib/backup.js": "./js/lib/backup.js?v=0.1.2-1105a",
     "./js/lib/checks.js": "./js/lib/checks.js?v=0.1.2-1105a",
     "./js/lib/device.js": "./js/lib/device.js?v=0.1.2-1105a",
     "./js/lib/format.js": "./js/lib/format.js?v=0.1.2-1105a",
@@ -66,12 +67,22 @@
         <p class="form-msg" id="nextMsg" role="status" hidden></p>
         <div class="next-title" id="nextTitle"></div>
         <p class="next-help" id="nextHelp"></p>
+        <button class="btn primary" id="saveBtn" type="button" hidden>저장 시험하기</button>
+        <button class="btn primary" id="exportBtn" type="button" hidden>백업 파일 내보내기</button>
+        <label class="btn primary" id="importLabel" for="importFile" hidden>백업 파일 가져오기</label>
+        <button class="text-btn" id="downloadBtn" type="button" hidden>파일로 바로 저장</button>
+        <div class="alts" id="alts" hidden></div>
       </div>
+      <!-- 아이폰은 hidden인 입력의 선택창을 안 열 수 있어 화면 밖에 둡니다. accept를 넣으면 파일이 회색이 될 수 있어요. -->
+      <input class="sr-only file-input" id="importFile" type="file" aria-label="백업 파일 고르기">
       <ol class="checks">
         <li class="check" data-check="standalone" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">홈 화면 앱으로 열림</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
         <li class="check" data-check="map" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">지도</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
         <li class="check" data-check="search" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">장소 검색</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
         <li class="check" data-check="gps" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">내 위치</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="persist" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">이 기기에 저장 후 유지</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="export" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">백업 파일 내보내기</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
+        <li class="check" data-check="import" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">백업 파일 가져오기</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
       </ol>
       <p class="lead" id="lead"></p>
       <p class="diag" id="diag"></p>

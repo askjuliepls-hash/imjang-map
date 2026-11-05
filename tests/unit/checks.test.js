@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nextStep, restoreResults } from '../../js/lib/checks.js';
+import { evaluatePersist, nextStep, restoreResults } from '../../js/lib/checks.js';
 
 const IDS = ['standalone', 'map', 'search', 'gps'];
 const ALL = ['standalone', 'map', 'search', 'gps', 'persist', 'export', 'import'];
@@ -65,4 +65,41 @@ test('gps·search half는 저장돼 있어도 대기로 복원한다', () => {
 test('실패 결과는 복원한다', () => {
   const r = rec({ gps: { state: 'fail', msg: '거부' } });
   assert.deepEqual(restoreResults(r, { version: 'v1', isApp: true }).results, { gps: { state: 'fail', msg: '거부' } });
+});
+
+test('내보낸 뒤 가져오기를 기다리는 상태는 복원한다', () => {
+  const r = rec({ export: { state: 'half', msg: '내보냈어요', via: 'share' } });
+  assert.equal(restoreResults(r, { version: 'v1', isApp: true }).results.export.via, 'share');
+});
+
+test('가져오기는 통과만 복원한다', () => {
+  const r = rec({ import: { state: 'fail', msg: 'x' } });
+  assert.deepEqual(restoreResults(r, { version: 'v1', isApp: true }).results, {});
+});
+
+const saved = { code: '4821', savedAt: 'x', expectReload: false, reopenSeen: false, reopenNav: null };
+
+test('시험 값이 없으면 대기', () => {
+  assert.equal(evaluatePersist(null, 'navigate').state, 'wait');
+});
+
+test('다시 불러오기 표시가 있는 로드는 통과에 세지 않고 표시를 지운다', () => {
+  const r = evaluatePersist({ ...saved, expectReload: true }, 'reload');
+  assert.equal(r.state, 'half');
+  assert.equal(r.phase, 'reloaded');
+  assert.equal(r.test.expectReload, false);
+  assert.equal(r.test.reopenSeen, false);
+});
+
+test('표시 없는 로드에서 통과하고 nav type이 남는다', () => {
+  const r = evaluatePersist(saved, 'navigate');
+  assert.equal(r.state, 'ok');
+  assert.equal(r.test.reopenSeen, true);
+  assert.equal(r.test.reopenNav, 'navigate');
+});
+
+test('한 번 통과하면 그 뒤로도 통과고 처음 nav type을 지킨다', () => {
+  const r = evaluatePersist({ ...saved, reopenSeen: true, reopenNav: 'navigate' }, 'reload');
+  assert.equal(r.state, 'ok');
+  assert.equal(r.test.reopenNav, 'navigate');
 });

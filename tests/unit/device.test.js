@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isStandalone, openPlace } from '../../js/lib/device.js';
+import { isAppleMobile, isStandalone, openPlace } from '../../js/lib/device.js';
 
 const UA = {
   iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
@@ -53,4 +53,11 @@ test('아이폰의 크롬·네이버 앱은 없는 공유 버튼을 안내하지
 test('안드로이드·PC 브라우저는 other', () => {
   assert.equal(openPlace(UA.androidPhone, 5, false), 'other');
   assert.equal(openPlace(UA.windowsChrome, 0, false), 'other');
+});
+
+test('아이폰·터치 되는 아이패드만 애플 모바일로 친다', () => {
+  assert.equal(isAppleMobile(UA.iphone, 5), true);
+  assert.equal(isAppleMobile(UA.ipadDesktop, 5), true);
+  assert.equal(isAppleMobile(UA.ipadDesktop, 0), false);
+  assert.equal(isAppleMobile(UA.androidPhone, 5), false);
 });

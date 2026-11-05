@@ -7,12 +7,15 @@ export function isStandalone(nav, matchMedia) {
 // 사파리처럼 보이지만 다른 앱·브라우저인 경우의 표시입니다.
 const OTHER_APP = /CriOS|FxiOS|EdgiOS|OPiOS|OPT\/|NAVER|DaumApps|Whale|Line\/|Instagram|FBAN|FBAV|SamsungBrowser/i;
 
+export function isAppleMobile(ua = '', maxTouchPoints = 0) {
+  return /iPhone|iPad/i.test(ua) || (/Macintosh/i.test(ua) && maxTouchPoints > 1);
+}
+
 // 'app' 홈 화면 앱 | 'kakao' 카카오톡 안 | 'ios-safari' 아이폰·아이패드 사파리 | 'other' 그 밖
 // 잘못 분류되면 없는 공유 버튼을 안내하게 되니, 애매하면 'other'로 보냅니다.
 export function openPlace(ua = '', maxTouchPoints = 0, standalone = false) {
   if (standalone) return 'app';
   if (/KAKAOTALK/i.test(ua)) return 'kakao';
-  const apple = /iPhone|iPad/i.test(ua) || (/Macintosh/i.test(ua) && maxTouchPoints > 1);
-  if (apple && /Version\//.test(ua) && /Safari\//.test(ua) && !OTHER_APP.test(ua)) return 'ios-safari';
+  if (isAppleMobile(ua, maxTouchPoints) && /Version\//.test(ua) && /Safari\//.test(ua) && !OTHER_APP.test(ua)) return 'ios-safari';
   return 'other';
 }
