@@ -4,7 +4,6 @@ export const BACKUP_SCHEMA = 1;
 export const BACKUP_EXT = '.json';
 export const MAX_BYTES = 20 * 1024 * 1024; // 이 기기 저장 한도(약 5MB, 한글은 파일에서 약 3배)보다 넉넉히. 동영상을 고른 경우를 통째로 읽기 전에 막습니다.
 export const REMIND_DAYS = 7;
-export const REMIND_PENDING = 3;
 
 const pad = (n) => String(n).padStart(2, '0');
 const DAY = 24 * 60 * 60 * 1000;
@@ -112,10 +111,9 @@ export async function readBackupFile(file) {
   return parseBackup(buffer);
 }
 
-// 백업 안 한 변경이 쌓였거나 며칠이 지나면 알립니다.
-export function needsReminder({ count, dirtySince, pending = 0, now, days = REMIND_DAYS }) {
+// 바뀐 내용이 백업 안 된 채 며칠이 지나면 알립니다.
+export function needsReminder({ count, dirtySince, now, days = REMIND_DAYS }) {
   if (!count || !dirtySince) return false;
-  if (pending >= REMIND_PENDING) return true;
   const since = new Date(dirtySince).getTime();
   return Number.isFinite(since) && now.getTime() - since >= days * DAY;
 }

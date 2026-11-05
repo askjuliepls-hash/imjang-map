@@ -109,14 +109,6 @@ test('바뀐 내용이 7일 넘게 백업 안 되면 알린다', () => {
   assert.equal(needsReminder({ count: 0, dirtySince: day(1), now }), false, '매물이 없음');
 });
 
-test('백업 안 한 변경이 3건 쌓이면 며칠 안 지나도 알린다', () => {
-  const now = new Date(2026, 10, 10);
-  const today = now.toISOString();
-  assert.equal(needsReminder({ count: 3, dirtySince: today, pending: 3, now }), true);
-  assert.equal(needsReminder({ count: 3, dirtySince: today, pending: 2, now }), false);
-  assert.equal(needsReminder({ count: 3, dirtySince: null, pending: 5, now }), false, '백업 뒤 바뀐 게 없음');
-});
-
 test('매물 1000개 백업도 가져오기 한도 안에 든다', () => {
   const fat = { name: '○○대학병원 문전약국', review: '유동인구 많고 처방전 수 많음. '.repeat(20), lat: 37.5, lng: 127 };
   const listings = Array.from({ length: 1000 }, (_, i) => ({ ...fat, id: String(i) }));

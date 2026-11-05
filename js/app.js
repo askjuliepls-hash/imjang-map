@@ -4,7 +4,7 @@ import { isAppleMobile, isStandalone, openPlace, parseAppVersion } from './lib/d
 import { createStore } from './lib/store.js';
 import { rankPlaces, formatDistance } from './lib/places.js';
 import {
-  buildBackup, chooseExportPath, readBackupFile, needsReminder, formatBackupTime, REMIND_DAYS, REMIND_PENDING,
+  buildBackup, chooseExportPath, readBackupFile, needsReminder, formatBackupTime, REMIND_DAYS,
 } from './lib/backup.js';
 import {
   PALETTE, MAX_NAME, checkName, upsertCategory, removeCategory, clearCategoryFrom, categoryOf, pinColor, nextColor,
@@ -465,7 +465,7 @@ function renderList() {
   }
 }
 
-// 임장 날짜별 보기의 세 가지: 최근순, 오래된순, 달력에서 고른 날짜
+// 임장 날짜별 보기의 세 가지: 최신순, 오래된순, 달력에서 고른 날짜
 let dateMode = 'new'; // 'new' | 'old' | 'pick'
 let pickedDate = null;
 
@@ -485,7 +485,7 @@ function renderDateTools() {
   $('orderNew').setAttribute('aria-pressed', String(dateMode === 'new'));
   $('orderOld').setAttribute('aria-pressed', String(dateMode === 'old'));
   $('datePick').setAttribute('aria-pressed', String(dateMode === 'pick'));
-  const label = { new: '최근순', old: '오래된순' }[dateMode] || shortVisitDate(pickedDate);
+  const label = { new: '최신순', old: '오래된순' }[dateMode] || shortVisitDate(pickedDate);
   $('sortLabel').textContent = label;
 }
 
@@ -869,9 +869,8 @@ function onSaveListing(ev) {
   }
   const located = r.data.lat !== null;
   closeForm();
-  toast('저장했어요.');
   if (located && tab === 'map') moveMapTo(r.data.lat, r.data.lng);
-  afterSaveNudge();
+  announceSaved();
 }
 
 // 양식 안의 위치 찍기 세 가지
@@ -1449,17 +1448,11 @@ function onUndoImport() {
   });
 }
 
-function showNudge() {
-  const n = backupMeta.pending || 0;
-  $('nudgeText').textContent = n >= REMIND_PENDING
-    ? `백업하지 않은 변경이 ${n}건 있어요. 폰을 잃거나 바꾸면 되살릴 수 없어요.`
-    : `바꾼 내용을 ${REMIND_DAYS}일 넘게 백업하지 않았어요. 폰을 잃거나 바꾸면 되살릴 수 없어요.`;
-  $('backupNudge').hidden = false;
-}
-
 function checkReminder() {
   if (PLACE !== 'app') return;
-  if (needsReminder({ count: items.length, dirtySince: backupMeta.dirtySince, pending: backupMeta.pending, now: new Date() })) showNudge();
+  if (!needsReminder({ count: items.length, dirtySince: backupMeta.dirtySince, now: new Date() })) return;
+  $('nudgeText').textContent = `바꾼 내용을 ${REMIND_DAYS}일 넘게 백업하지 않았어요. 폰을 잃거나 바꾸면 되살릴 수 없어요.`;
+  $('backupNudge').hidden = false;
 }
 
 function openBackupScreen() {
@@ -1472,23 +1465,18 @@ function openBackupScreen() {
   $('backupScreen').hidden = false;
 }
 
-// 저장 직후: 처음 한 번은 폰에만 저장된다는 것을 분명히 알리고, 그 뒤로는 3건마다 권합니다.
-function afterSaveNudge() {
-  if (PLACE !== 'app') return;
-  if (!backupMeta.introSeen) {
-    backupMeta.introSeen = true;
-    saveBackupMeta();
-    askConfirm(
-      '이 앱은 이 폰에만 저장돼요.\n폰을 잃거나 바꾸면 되살릴 수 없어요. 백업 파일을 카톡 나와의 채팅으로 보내 두세요.',
-      '지금 백업하기',
-      '나중에',
-      openBackupScreen,
-      { recommend: true },
-    );
+// 저장할 때마다 백업을 권합니다. 처음 한 번은 왜 필요한지도 알립니다.
+function announceSaved() {
+  if (PLACE !== 'app') {
+    toast('저장했어요.');
     return;
   }
-  const n = backupMeta.pending || 0;
-  if (n >= REMIND_PENDING && n % REMIND_PENDING === 0) showNudge();
+  const why = backupMeta.introSeen
+    ? `백업하지 않은 변경이 ${backupMeta.pending}건 있어요.`
+    : '이 앱은 이 폰에만 저장돼요. 폰을 잃거나 바꾸면 되살릴 수 없어요. 백업 파일을 카톡 나와의 채팅으로 보내 두세요.';
+  backupMeta.introSeen = true;
+  saveBackupMeta();
+  askConfirm(`저장했어요.\n${why}`, '지금 백업하기', '닫기', openBackupScreen, { recommend: true });
 }
 
 // ---------- 하단 탭 ----------

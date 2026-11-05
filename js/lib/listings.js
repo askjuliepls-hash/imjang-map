@@ -124,7 +124,7 @@ function collect(items, keyOf) {
   return map;
 }
 
-// 임장 날짜별: order 'new' 최근순 | 'old' 오래된순. 임장일이 없는 매물은 늘 맨 끝에 묶습니다.
+// 임장 날짜별: order 'new' 최신순 | 'old' 오래된순. 임장일이 없는 매물은 늘 맨 끝에 묶습니다.
 // date를 주면 그날 매물만 돌려줍니다.
 export function groupByVisitDate(items, { order = 'new', date = null } = {}) {
   const map = collect(items, (x) => x.visitDate || '');

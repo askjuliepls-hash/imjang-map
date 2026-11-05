@@ -162,7 +162,7 @@ const L = (id, visitDate, region, createdAt = '2026-11-01T00:00:00Z', address = 
 
 const DATED = [L('old', '2026-10-01', ''), L('none', '', ''), L('new', '2026-11-05', ''), L('new2', '2026-11-05', '', '2026-11-03T00:00:00Z')];
 
-test('임장 날짜별 최근순: 최근 날짜부터, 임장일 없는 매물은 맨 끝', () => {
+test('임장 날짜별 최신순: 최근 날짜부터, 임장일 없는 매물은 맨 끝', () => {
   const g = groupByVisitDate(DATED);
   assert.deepEqual(g.map((x) => x.title), ['2026년 11월 5일 (목)', '2026년 10월 1일 (목)', '임장 전']);
   assert.deepEqual(g[0].items.map((x) => x.id), ['new2', 'new']);

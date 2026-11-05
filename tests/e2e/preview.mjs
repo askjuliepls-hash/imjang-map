@@ -60,6 +60,11 @@ const quietNudge = () => {
     const s = document.createElement('style');
     s.textContent = '#backupNudge{display:none!important}';
     document.head.append(s);
+    // 저장할 때마다 뜨는 창은 바로 닫습니다. 다른 확인 창은 그대로 둡니다.
+    const m = document.getElementById('modal');
+    if (m) new MutationObserver(() => {
+      if (!m.hidden && document.getElementById('modalText').textContent.startsWith('저장했어요')) document.getElementById('modalNo').click();
+    }).observe(m, { attributes: true, attributeFilter: ['hidden'] });
   });
 };
 
@@ -288,7 +293,6 @@ try {
     await page.click('#saveListing');
     await wait(80);
     expect(s, '저장하면 양식이 닫힘', !(await visible(page, '#formScreen')));
-    expect(s, '저장 안내가 보임', await visible(page, '#toast') && (await text(page, '#toast')).includes('저장'));
     expect(s, '목록에 한 줄 생김', (await text(page, '#list')).includes('○○병원') && (await text(page, '#count')) === '총 1개');
     expect(s, '목록에 위치 없음 표시', (await text(page, '#list')).includes('위치 없음') && (await text(page, '#list')).includes('1억 5,000만원'));
     await shot(page, 'b-list');
@@ -298,6 +302,7 @@ try {
     const page2 = await context.newPage();
     await page2.setUserAgent(IPHONE_UA);
     await page2.setViewport(PHONE);
+    await page2.evaluateOnNewDocument(quietNudge);
     await page2.evaluateOnNewDocument(asApp);
     await page2.setRequestInterception(true);
     page2.on('request', interceptFor({ kakao: 'mock', config: 'mock' }));
@@ -487,7 +492,7 @@ try {
     await goTab(page, 'list');
     // 재발 방지(2026-11-05): 올해 날짜에 연도가 빠져 어느 해인지 알 수 없던 문제
     expect(s, '임장 날짜에 늘 연도가 보임', (await heads()).filter((x) => x !== '임장 전').every((x) => /^\d{4}년/.test(x)), (await heads()).join(' / '));
-    expect(s, '총 개수와 정렬이 한 줄에 보임', (await text(page, '#count')) === '총 5개' && (await text(page, '#sortLabel')) === '최근순' && !(await visible(page, '#sortMenu')));
+    expect(s, '총 개수와 정렬이 한 줄에 보임', (await text(page, '#count')) === '총 5개' && (await text(page, '#sortLabel')) === '최신순' && !(await visible(page, '#sortMenu')));
     await page.click('#sortBtn');
     expect(s, '정렬을 누르면 세 가지가 스크롤 없이 보임', await inView(page, '#orderNew') && await inView(page, '#orderOld') && await inView(page, '#datePick'));
     await shot(page, 'k-sort-open');
@@ -518,7 +523,7 @@ try {
     await shot(page, 'k-date-picked');
     await page.click('#sortBtn');
     await page.click('#orderNew');
-    expect(s, '최근순을 누르면 전체로 돌아옴', (await heads()).length === 3 && (await text(page, '#sortLabel')) === '최근순' && (await text(page, '#count')) === '총 5개');
+    expect(s, '최신순을 누르면 전체로 돌아옴', (await heads()).length === 3 && (await text(page, '#sortLabel')) === '최신순' && (await text(page, '#count')) === '총 5개');
     await page.click('#viewTabs [data-view="region"]');
     expect(s, '다른 보기에서는 정렬이 안 보이고 총 개수는 보임', !(await visible(page, '#sortBtn')) && await visible(page, '#count'));
     const regionHeads = await heads();
@@ -1123,45 +1128,33 @@ try {
       await appReady(page);
       await wait(60);
       expect(s, '앱을 열면 자동 삭제 방지를 요청함', (await page.evaluate(() => window.__persistCalls)) >= 1);
-      await page.click('#addBtn');
-      await page.type('#f-name', '첫 약국');
-      await page.click('#saveListing');
-      await wait(80);
-      expect(s, '첫 저장 뒤 폰에만 저장된다고 창으로 알림', await visible(page, '#modal') && (await text(page, '#modalText')).includes('이 폰에만') && await inView(page, '#modalYes'));
+      await fillAndSave(page, { name: '첫 약국' });
+      const saveWindow = () => text(page, '#modalText');
+      expect(s, '첫 저장 뒤 저장했다는 말과 폰에만 저장된다는 설명을 창으로 알림', await visible(page, '#modal') && (await saveWindow()).startsWith('저장했어요') && (await saveWindow()).includes('이 폰에만') && await inView(page, '#modalYes'));
+      expect(s, '저장 안내를 토스트로 겹쳐 띄우지 않음', !(await visible(page, '#toast')));
       await shot(page, 'w-intro');
+      const dot = () => page.$eval('#tabbar [data-tab="settings"]', (el) => el.dataset.alert);
       await page.click('#modalNo');
-      expect(s, '설정 탭에 점이 찍힘', (await page.$eval('#tabbar [data-tab="settings"]', (el) => el.dataset.alert)) === 'true');
-      await page.click('#addBtn');
-      await page.type('#f-name', '둘째 약국');
-      await page.click('#saveListing');
-      await wait(80);
-      expect(s, '안내 창은 처음 한 번만', !(await visible(page, '#modal')) && !(await visible(page, '#backupNudge')));
-      await page.click('#addBtn');
-      await page.type('#f-name', '셋째 약국');
-      await page.click('#saveListing');
-      await wait(80);
-      expect(s, '3건 쌓이면 알림', await visible(page, '#backupNudge') && (await text(page, '#nudgeText')).includes('3건') && await inView(page, '#nudgeGo'));
-      const nudgeClear = await page.evaluate(() => {
-        const stage = document.querySelector('.stage').getBoundingClientRect();
-        return document.getElementById('backupNudge').getBoundingClientRect().bottom <= stage.bottom - 40;
-      });
-      expect(s, '백업 알림이 카카오 로고 자리를 가리지 않음', nudgeClear);
-      await shot(page, 'w-nudge-3');
-      await page.click('#nudgeLater');
+      expect(s, '닫기를 누르면 창이 닫히고 설정 탭에 점이 찍힘', !(await visible(page, '#modal')) && (await dot()) === 'true');
+      await fillAndSave(page, { name: '둘째 약국' });
+      expect(s, '저장할 때마다 창이 뜨고 쌓인 건수를 보여 줌', await visible(page, '#modal') && (await saveWindow()).startsWith('저장했어요') && (await saveWindow()).includes('2건') && !(await saveWindow()).includes('이 폰에만'));
+      await shot(page, 'w-save-each');
+      await page.click('#modalNo');
       await goTab(page, 'settings');
-      expect(s, '설정에 백업 전 건수가 보임', (await text(page, '#backupWhen')) === '백업 전 3건');
+      expect(s, '설정에 백업 전 건수가 보임', (await text(page, '#backupWhen')) === '백업 전 2건');
       await shot(page, 'w-settings-pending');
       await page.reload({ waitUntil: 'load' });
       await appReady(page);
-      expect(s, '나중에를 눌러도 다음에 열면 다시 알림', await visible(page, '#backupNudge'));
-      await page.click('#nudgeGo');
+      expect(s, '7일이 안 지났으면 앱을 열어도 알림이 없음', !(await visible(page, '#backupNudge')));
+      await fillAndSave(page, { name: '셋째 약국' });
+      await page.click('#modalYes');
       await wait(60);
-      expect(s, '알림에서 백업 화면으로 감', await visible(page, '#backupScreen') && (await text(page, '#backupLast')).includes('3건'));
+      expect(s, '지금 백업하기를 누르면 백업 화면으로 감', await visible(page, '#backupScreen') && !(await visible(page, '#modal')) && (await text(page, '#backupLast')).includes('3건'));
       expect(s, '자동 삭제 방지 상태가 보임', (await text(page, '#persistLine')).includes('켜짐'));
       await shot(page, 'w-backup-pending');
       await page.click('#exportBtn');
       await wait(100);
-      expect(s, '백업하면 점이 사라짐', (await page.$eval('#tabbar [data-tab="settings"]', (el) => el.dataset.alert)) === 'false');
+      expect(s, '백업하면 점이 사라짐', (await dot()) === 'false');
       expect(s, '스크립트 오류 없음(유도)', errors.length === 0, errors.join(' | '));
       await context.close();
     }
@@ -1179,6 +1172,15 @@ try {
       await context.close();
     }
     {
+      // 홈 화면에 추가하기 전(사파리)에는 창 없이 토스트로만 알립니다.
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', realNudge: true }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      await fillAndSave(page, { name: '사파리 약국' });
+      expect(s, '앱이 아니면 저장 안내는 토스트만', (await text(page, '#toast')) === '저장했어요.' && !(await visible(page, '#modal')));
+      await context.close();
+    }
+    {
       // 7일 알림
       const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', realNudge: true, init: [asApp, fakeShare] }, s);
       await page.goto(BASE, { waitUntil: 'load' });
@@ -1190,6 +1192,11 @@ try {
       await page.reload({ waitUntil: 'load' });
       await appReady(page);
       expect(s, '7일 넘게 백업 안 하면 알림', await visible(page, '#backupNudge') && await inView(page, '#nudgeGo'));
+      const nudgeClear = await page.evaluate(() => {
+        const stage = document.querySelector('.stage').getBoundingClientRect();
+        return document.getElementById('backupNudge').getBoundingClientRect().bottom <= stage.bottom - 40;
+      });
+      expect(s, '백업 알림이 카카오 로고 자리를 가리지 않음', nudgeClear);
       await shot(page, 'w-nudge');
       await page.click('#nudgeGo');
       expect(s, '알림에서 백업 화면으로 감', await visible(page, '#backupScreen') && !(await visible(page, '#backupNudge')));
