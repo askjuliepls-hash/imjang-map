@@ -147,7 +147,6 @@ p { margin: 0; }
 .settings { min-height: 0; overflow: auto; padding: 8px 20px 20px; background: var(--surface); }
 button.set-row { width: 100%; padding: 0; border: 0; background: none; color: var(--ink); text-align: left; font-family: inherit; }
 .set-row { display: flex; align-items: center; gap: 12px; min-height: 60px; }
-.set-icon { flex: none; color: var(--ink-3); }
 .set-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .set-label { font-size: 16px; font-weight: 600; }
 .set-note { font-size: 13px; font-weight: 500; color: var(--ink-3); }

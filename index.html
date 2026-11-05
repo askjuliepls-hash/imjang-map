@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1b1d23" media="(prefers-color-scheme: dark)">
-<meta name="app-version" content="0.3.0-1105d">
+<meta name="app-version" content="0.3.0-1105e">
 <title>약국 임장노트</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="stylesheet" href="./fonts/pretendard/pretendardvariable-dynamic-subset.css">
-<link rel="stylesheet" href="./css/app.css?v=0.3.0-1105d">
+<link rel="stylesheet" href="./css/app.css?v=0.3.0-1105e">
 <script>
 // 아이폰 홈 화면 앱은 위쪽 흐림 효과가 앱 글자와 겹쳐서 윗부분을 띄웁니다(css/app.css의 --top-gap).
 if (window.navigator.standalone === true) document.documentElement.classList.add('ios-app');
@@ -18,14 +18,14 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
 <script type="importmap">
 {
   "imports": {
-    "./js/lib/categories.js": "./js/lib/categories.js?v=0.3.0-1105d",
-    "./js/config.js": "./js/config.js?v=0.3.0-1105d",
-    "./js/lib/device.js": "./js/lib/device.js?v=0.3.0-1105d",
-    "./js/lib/format.js": "./js/lib/format.js?v=0.3.0-1105d",
-    "./js/lib/listings.js": "./js/lib/listings.js?v=0.3.0-1105d",
-    "./js/lib/messages.js": "./js/lib/messages.js?v=0.3.0-1105d",
-    "./js/lib/places.js": "./js/lib/places.js?v=0.3.0-1105d",
-    "./js/lib/store.js": "./js/lib/store.js?v=0.3.0-1105d"
+    "./js/lib/categories.js": "./js/lib/categories.js?v=0.3.0-1105e",
+    "./js/config.js": "./js/config.js?v=0.3.0-1105e",
+    "./js/lib/device.js": "./js/lib/device.js?v=0.3.0-1105e",
+    "./js/lib/format.js": "./js/lib/format.js?v=0.3.0-1105e",
+    "./js/lib/listings.js": "./js/lib/listings.js?v=0.3.0-1105e",
+    "./js/lib/messages.js": "./js/lib/messages.js?v=0.3.0-1105e",
+    "./js/lib/places.js": "./js/lib/places.js?v=0.3.0-1105e",
+    "./js/lib/store.js": "./js/lib/store.js?v=0.3.0-1105e"
   }
 }
 </script>
@@ -111,17 +111,14 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
 
   <section class="settings" id="settingsPanel">
     <button class="set-row" id="catManage" type="button">
-      <svg class="set-icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 2.5c-4.1 0-7.5 3.2-7.5 7.3 0 5.3 6.4 11.1 6.7 11.4.4.4 1.1.4 1.5 0 .3-.3 6.8-6.1 6.8-11.4 0-4.1-3.4-7.3-7.5-7.3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="9.8" r="2.4" fill="currentColor"/></svg>
       <span class="set-text"><span class="set-label">내 분류 관리</span><span class="set-note">매물을 묶고 지도 핀 색을 정해요</span></span>
       <span class="set-value" id="catCount"></span>
     </button>
     <div class="set-row">
-      <svg class="set-icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M7 18.500h10a4.500 4.500 0 0 0 .8-8.930A6 6 0 0 0 6.300 8.800 5 5 0 0 0 7 18.500z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 15.500v-5M9.500 12.500 12 10l2.500 2.500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span class="set-text"><span class="set-label">백업하기</span></span>
       <span class="set-value">준비 중</span>
     </div>
     <div class="set-row">
-      <svg class="set-icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v5.500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="7.800" r="1.300" fill="currentColor"/></svg>
       <span class="set-text"><span class="set-label">버전</span></span>
       <span class="set-value" id="ver"></span>
     </div>
@@ -309,6 +306,6 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
   };
 })();
 </script>
-<script type="module" src="./js/app.js?v=0.3.0-1105d"></script>
+<script type="module" src="./js/app.js?v=0.3.0-1105e"></script>
 </body>
 </html>

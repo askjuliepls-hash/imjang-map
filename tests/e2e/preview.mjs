@@ -179,7 +179,7 @@ try {
     expect(s, '탭 이름이 지도·매물 목록·설정', (await text(page, '#tabbar')).replace(/\s+/g, '') === '지도매물목록설정');
     await shot(page, 'a-list-empty');
     await goTab(page, 'settings');
-    expect(s, '설정의 모든 줄에 기호가 있고 분류 설명이 있음', (await page.$$('#settingsPanel .set-icon')).length === 3 && (await text(page, '#catManage')).includes('지도 핀 색'));
+    expect(s, '설정에 기호 없이 분류 설명이 있음', !(await page.$('#settingsPanel svg')) && (await text(page, '#catManage')).includes('지도 핀 색'));
     expect(s, '설정에 앱 다시 불러오기가 없음', !(await text(page, '#settingsPanel')).includes('다시 불러오기') && !(await visible(page, '#topReload')) && !(await visible(page, '#addBtn')));
     await shot(page, 'a-settings');
     await goTab(page, 'map');
