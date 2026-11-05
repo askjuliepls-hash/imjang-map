@@ -53,6 +53,9 @@ const mocks = {
 const interceptFor = (mode, requests = []) => (req) => {
   const u = new URL(req.url());
   requests.push(u.pathname + u.search);
+  if (mode.remote?.on && req.resourceType() === 'fetch' && u.pathname === '/imjang-map/') {
+    return req.respond({ status: 200, contentType: 'text/html; charset=utf-8', body: '<meta name="app-version" content="9.9.9-new">' });
+  }
   if (mode.abort && mode.abort.test(u.pathname)) return req.abort();
   const js = (body) => req.respond({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
   if (u.hostname === 'dapi.kakao.com') {
@@ -145,6 +148,11 @@ const stored = (page) => page.evaluate(() => {
 const visible = (page, sel) => page.$eval(sel, (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const text = (page, sel) => page.$eval(sel, (el) => el.textContent);
+const goTab = (page, name) => page.click(`#tabbar [data-tab="${name}"]`);
+const openFirst = async (page) => {
+  await goTab(page, 'list');
+  await page.click('#list button');
+};
 const appReady = (page) => page.waitForFunction(() => window.__appStarted === true, { timeout: 6000 });
 
 async function fillAndSave(page, fields) {
@@ -165,7 +173,16 @@ try {
     await page.goto(BASE, { waitUntil: 'load' });
     await appReady(page);
     expect(s, '점검 화면이 없음', !(await page.$('[data-check]')) && !(await page.$('#next')));
+    await goTab(page, 'list');
+    expect(s, '매물 목록 탭은 화면 전체', await visible(page, '#sheet') && !(await visible(page, '#map')));
     expect(s, '빈 목록 안내가 보임', await visible(page, '#empty'));
+    expect(s, '탭 이름이 지도·매물 목록·설정', (await text(page, '#tabbar')).replace(/\s+/g, '') === '지도매물목록설정');
+    await shot(page, 'a-list-empty');
+    await goTab(page, 'settings');
+    expect(s, '설정에 앱 다시 불러오기가 없음', !(await text(page, '#settingsPanel')).includes('다시 불러오기') && !(await visible(page, '#topReload')) && !(await visible(page, '#addBtn')));
+    await shot(page, 'a-settings');
+    await goTab(page, 'map');
+    expect(s, '평소에는 다시 불러오기가 안 보임', !(await visible(page, '#topReload')));
     expect(s, '매물 추가 버튼이 스크롤 없이 보임', await inView(page, '#addBtn'));
     // 재발 방지(2026-11-05): 매물 추가 버튼이 왼쪽 아래 카카오 로고 자리를 가리던 문제
     const logoClear = await page.evaluate(() => {
@@ -219,6 +236,7 @@ try {
     await page.type('#f-dispensing', '신규');
     await page.type('#f-review', '<b>유동인구</b> 많음\n둘째 줄');
     await shot(page, 'b-form-filled');
+    expect(s, '예상 순수익 칸에 안내 글자가 없음', (await page.$eval('#f-netProfit', (el) => el.placeholder)) === '' && (await page.$eval('#f-dispensing', (el) => el.placeholder)).includes('신규'));
     await page.click('#saveListing');
     await wait(80);
     expect(s, '저장하면 양식이 닫힘', !(await visible(page, '#formScreen')));
@@ -239,7 +257,7 @@ try {
     await page2.goto(BASE, { waitUntil: 'load' });
     await appReady(page2);
     expect(s, '새로 열어도 남아 있음', (await text(page2, '#list')).includes('○○병원'));
-    await page2.click('#list button');
+    await openFirst(page2);
     expect(s, '상세가 열림', await visible(page2, '#detailScreen'));
     expect(s, '금액과 평이 읽기 쉽게 보임', (await text(page2, '#detailBody')).includes('1억 5,000만원') && (await text(page2, '#detailBody')).includes('33㎡ (약 10.0평)') && (await text(page2, '#detailBody')).includes('신규'));
     expect(s, '입력한 글자를 태그로 해석하지 않음', (await text(page2, '#detailBody')).includes('<b>유동인구</b>') && !(await page2.$('#detailBody b')));
@@ -254,7 +272,7 @@ try {
     await wait(80);
     const after = await stored(page2);
     expect(s, '수정해도 한 개이고 등록일이 그대로', after.length === 1 && after[0].premium === '20000' && after[0].createdAt <= after[0].updatedAt);
-    await page2.click('#list button');
+    await openFirst(page2);
     await page2.click('#deleteBtn');
     expect(s, '삭제는 창으로 한 번 더 확인함', await visible(page2, '#modal') && await inView(page2, '#modalYes') && (await stored(page2)).length === 1);
     await page2.click('#modalNo');
@@ -264,6 +282,7 @@ try {
     await page2.click('#modalYes');
     await wait(50);
     expect(s, '삭제하면 사라짐', (await stored(page2)).length === 0 && await visible(page2, '#empty'));
+    expect(s, '목록 탭에서도 매물 추가 버튼이 보임', await inView(page2, '#addBtn'));
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
   });
@@ -340,12 +359,28 @@ try {
     await shot(page, 'c-pins');
     // 핀 → 상세
     await page.evaluate(() => document.querySelector('.mock-marker').click());
-    expect(s, '핀을 누르면 상세가 열림', await visible(page, '#detailScreen'));
+    expect(s, '핀을 누르면 지도를 둔 채 요약 카드가 보임', await visible(page, '#pinCard') && await inView(page, '#pinOpen') && !(await visible(page, '#detailScreen')));
+    await shot(page, 'c-pin-card');
+    await page.click('#pinClose');
+    expect(s, '카드를 닫으면 매물 추가가 돌아옴', !(await visible(page, '#pinCard')) && await visible(page, '#addBtn'));
+    await page.evaluate(() => document.querySelector('.mock-marker').click());
+    await page.click('#pinOpen');
+    expect(s, '자세히 보기로 상세가 열림', await visible(page, '#detailScreen'));
     expect(s, '상세에 주소가 보임', (await text(page, '#detailBody')).includes('주소'));
     await page.click('#mapViewBtn');
-    expect(s, '지도에서 보기로 돌아옴', !(await visible(page, '#detailScreen')));
+    expect(s, '지도에서 보기로 돌아옴', !(await visible(page, '#detailScreen')) && await visible(page, '#map'));
+    // 목록 탭에서 양식을 열어 지도에서 고르면 다시 목록으로 돌아옵니다.
+    await goTab(page, 'list');
+    await page.click('#addBtn');
+    await page.click('#locMapBtn');
+    expect(s, '목록에서 연 양식도 지도에서 고를 수 있음', await visible(page, '#map') && await visible(page, '#pickBar') && !(await visible(page, '#tabbar')));
+    await page.click('#pickCancel');
+    expect(s, '고르기를 마치면 목록 탭으로 돌아옴', await visible(page, '#formScreen') && await visible(page, '#tabbar') && (await page.$eval('#app', (el) => el.dataset.tab)) === 'list');
+    await page.click('#formClose');
+    await goTab(page, 'map');
     // 위치 지우기 → 핀 사라짐
     await page.evaluate(() => document.querySelector('.mock-marker').click());
+    await page.click('#pinOpen');
     await page.click('#editBtn');
     await page.click('#locClear');
     await page.click('#saveListing');
@@ -373,7 +408,7 @@ try {
     expect(s, '예상 순수익도 금액으로 보임', (await text(page, '#h-netProfit')) === '1,200만원');
     await page.click('#saveListing');
     await wait(80);
-    await page.click('#list button');
+    await openFirst(page);
     expect(s, '상세에 예상 순수익이 보임', (await text(page, '#detailBody')).includes('예상 순수익(월)') && (await text(page, '#detailBody')).includes('1,200만원'));
     await page.click('#detailClose');
     await page.evaluate(() => {
@@ -393,26 +428,7 @@ try {
     expect(s, '임장 날짜별: 최근 날짜부터, 임장 전은 맨 끝', dateHeads.length === 3 && dateHeads[0].includes('11월 3일') && dateHeads[1].startsWith('2025년') && dateHeads[2] === '임장 전', dateHeads.join(' / '));
     await layoutExpect(page, s);
     await shot(page, 'k-by-date');
-    // 재발 방지(2026-11-05): 손잡이가 끌릴 것처럼 생겼는데 끌리지 않던 문제
-    const dragSheet = async (dy) => {
-      const r = await page.$eval('#sheetToggle', (el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + 12 }; });
-      await page.mouse.move(r.x, r.y);
-      await page.mouse.down();
-      await page.mouse.move(r.x, r.y + dy / 2);
-      await page.mouse.move(r.x, r.y + dy);
-      await page.mouse.up();
-      await wait(60);
-      return page.$eval('#sheet', (el) => el.dataset.size);
-    };
-    const midH = await page.$eval('#sheet', (el) => el.getBoundingClientRect().height);
-    expect(s, '손잡이를 위로 끌면 목록이 커짐', (await dragSheet(-260)) === 'max' && (await page.$eval('#sheet', (el) => el.getBoundingClientRect().height)) > midH);
-    expect(s, '목록을 크게 보면 떠 있는 버튼이 검색창과 안 겹침', !(await visible(page, '#locate')) && !(await visible(page, '#addBtn')));
-    await shot(page, 'k-sheet-max');
-    expect(s, '손잡이를 아래로 끌면 기본 크기', (await dragSheet(240)) === 'mid');
-    expect(s, '기본 크기로 돌아오면 버튼도 돌아옴', await visible(page, '#locate') && await visible(page, '#addBtn'));
-    expect(s, '더 끌어내리면 제목만 남음', (await dragSheet(300)) === 'min' && !(await visible(page, '#list')));
-    await page.click('#sheetToggle');
-    expect(s, '누르면 다시 열림', (await page.$eval('#sheet', (el) => el.dataset.size)) === 'mid' && await visible(page, '#list'));
+    await goTab(page, 'list');
     await page.click('#viewTabs [data-view="region"]');
     const regionHeads = await heads();
     expect(s, '지역별: 가나다순, 주소로 지역을 읽고, 모르면 맨 끝', regionHeads.join() === '경기 성남시 수정구,경기 성남시 중원구,서울 중구,지역 없음', regionHeads.join(' / '));
@@ -421,7 +437,7 @@ try {
     await page.reload({ waitUntil: 'load' });
     await appReady(page);
     expect(s, '다시 열어도 고른 보기가 유지됨', (await page.$eval('#viewTabs [data-view="region"]', (el) => el.getAttribute('aria-pressed'))) === 'true');
-    await page.click('#list button');
+    await openFirst(page);
     expect(s, '묶음 안의 매물을 눌러도 상세가 열림', await visible(page, '#detailScreen'));
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
@@ -547,7 +563,9 @@ try {
       await page.evaluate(() => localStorage.setItem('imjang-map:listings', '{깨진 값'));
       await page.reload({ waitUntil: 'load' });
       await appReady(page);
-      expect(s, '못 읽으면 알리고 추가를 막음', await visible(page, '#loadMsg') && await page.$eval('#addBtn', (el) => el.disabled));
+      expect(s, '못 읽으면 처음 화면에서 바로 알리고 추가를 막음', await visible(page, '#toast') && (await text(page, '#toast')).includes('읽지 못했어요') && await visible(page, '#topReload') && await page.$eval('#addBtn', (el) => el.disabled));
+      await goTab(page, 'list');
+      expect(s, '목록에도 이유가 보임', await visible(page, '#loadMsg'));
       expect(s, '깨진 값을 덮어쓰지 않음', (await page.evaluate(() => localStorage.getItem('imjang-map:listings'))) === '{깨진 값');
       expect(s, '스크립트 오류 없음(읽기 실패)', errors.length === 0, errors.join(' | '));
       await shot(page, 'd-load-failed');
@@ -586,7 +604,7 @@ try {
     expect(s, '검색 입력 잠김', await page.$eval('#q', (el) => el.disabled));
     await fillAndSave(page, { name: '지도 없이 적은 약국' });
     expect(s, '지도가 없어도 저장됨', (await stored(page)).length === 1);
-    await page.click('#list button');
+    await openFirst(page);
     expect(s, '위치 없는 매물에는 지도에서 보기가 없음', !(await visible(page, '#mapViewBtn')));
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await shot(page, 'e-map-failed');
@@ -632,6 +650,7 @@ try {
       const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
       await page.goto(BASE, { waitUntil: 'load' });
       await appReady(page);
+      await page.evaluate(() => window.__showReload('시험 안내'));
       await page.setOfflineMode(true);
       await page.click('#topReload');
       const said = await page.waitForFunction(() => {
@@ -639,6 +658,7 @@ try {
         return m && !m.hidden && m.textContent.includes('인터넷');
       }, { timeout: 12000 }).then(() => true, () => false);
       expect(s, '신호 없으면 앱 화면이 남고 안내가 보임', said && await inView(page, '#reloadMsg') && page.url() === BASE);
+      await shot(page, 'h-offline');
       await page.setOfflineMode(false);
       await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.click('#topReload')]);
       await appReady(page);
@@ -695,6 +715,36 @@ try {
     }
   });
 
+  // U. 새 버전 자동 적용
+  await scenario('U 새 버전', async (s) => {
+    const remote = { on: false };
+    const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp, remote }, s);
+    let loads = 0;
+    page.on('load', () => { loads += 1; });
+    await page.goto(BASE, { waitUntil: 'load' });
+    await appReady(page);
+    await wait(200);
+    expect(s, '같은 버전이면 다시 읽지 않음', loads === 1, String(loads));
+    await page.click('#addBtn');
+    await page.type('#f-name', '쓰던 내용');
+    remote.on = true;
+    const ping = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await ping();
+    await wait(300);
+    expect(s, '입력 중에는 새 버전이 있어도 안 건드림', loads === 1 && (await page.$eval('#f-name', (el) => el.value)) === '쓰던 내용', String(loads));
+    await page.click('#formClose');
+    await page.click('#modalYes');
+    await ping();
+    await page.waitForFunction(() => document.readyState === 'complete');
+    await wait(500);
+    expect(s, '입력이 끝나면 새 버전을 받음', loads >= 2, String(loads));
+    const after = loads;
+    await wait(500);
+    expect(s, '받은 파일이 그대로여도 반복해서 다시 읽지 않음', loads === after, `${after} -> ${loads}`);
+    expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
+    await context.close();
+  });
+
   // I. 홈 화면 설정: 크롬이 manifest를 제대로 읽는지와 아이콘 응답 (아이폰 동작의 증거는 아님)
   await scenario('I 홈 화면', async (s) => {
     const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock' }, s);
@@ -721,8 +771,11 @@ try {
     await wait(3600); // 저장 안내가 닫힌 뒤 캡처
     await shot(page, 'j-main');
     // 재발 방지(2026-11-05): 홈 화면 앱에서 윗줄이 iOS 흐림 효과와 겹치던 문제 (실제 효과는 폰에서 확인)
-    const bar = await page.$eval('.topbar', (el) => el.getBoundingClientRect().height);
-    expect(s, '홈 화면 앱에서 윗줄을 내리되 너무 두껍지 않음', await page.$eval('.brand', (el) => el.getBoundingClientRect().top >= 26) && bar <= 66, String(bar));
+    // 재발 방지(2026-11-05): 홈 화면 앱에서 맨 위가 iOS 흐림 효과와 겹치던 문제 (실제 효과는 폰에서 확인)
+    expect(s, '홈 화면 앱에서 검색창을 내려 둠', await page.$eval('.search', (el) => el.getBoundingClientRect().top >= 26));
+    await goTab(page, 'list');
+    await shot(page, 'j-list');
+    await goTab(page, 'map');
     await page.click('#addBtn');
     await shot(page, 'j-form');
     expect(s, '양식 윗줄도 내려 둠', await page.$eval('#formClose', (el) => el.getBoundingClientRect().top >= 20));
@@ -730,8 +783,9 @@ try {
     expect(s, '저장 버튼이 가려지지 않음', await inView(page, '#saveListing'));
     await page.click('#formClose');
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+    await goTab(page, 'list');
     await shot(page, 'j-dark');
-    await page.click('#list button');
+    await openFirst(page);
     await shot(page, 'j-detail-dark');
     await context.close();
   });

@@ -26,7 +26,7 @@ export const FIELD_GROUPS = [
   { title: '수익', fields: [
     { key: 'dispensing', label: '조제료(월)', kind: 'money-or-new' },
     { key: 'otc', label: '일반매출(일)', kind: 'money-or-new' },
-    { key: 'netProfit', label: '예상 순수익(월)', kind: 'money-or-new' },
+    { key: 'netProfit', label: '예상 순수익(월)', kind: 'money-or-new', placeholder: '' },
   ] },
   { title: '임장', fields: [
     { key: 'review', label: '후기·디테일', kind: 'long' },

@@ -1,15 +1,14 @@
-// 홈 화면 아이콘 PNG를 index.html의 표식(핀 + 십자)으로 만듭니다. 한 번 돌려 나온 파일을 커밋합니다.
+// 홈 화면 아이콘 PNG를 표식(핀 + 십자)으로 만듭니다. 한 번 돌려 나온 파일을 커밋합니다.
 // 사용법: node scripts/make-icons.mjs
 // 아이폰 아이콘은 불투명한 정사각형이어야 하고, 둥근 모서리는 iOS가 입힙니다.
 import puppeteer from 'puppeteer-core';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 
 const BG = '#ffffff';
 const PIN = '#F96949'; // css/app.css의 --accent
 const CROSS = '#ffffff';
 
-const html = readFileSync('index.html', 'utf8');
-const inner = html.match(/<svg class="mark"[\s\S]*?<\/svg>/)[0].replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
+const inner = `<path d="M12 2.5c-4.1 0-7.5 3.2-7.5 7.3 0 5.3 6.4 11.1 6.7 11.4.4.4 1.1.4 1.5 0 .3-.3 6.8-6.1 6.8-11.4 0-4.1-3.4-7.3-7.5-7.3z" fill="currentColor"/><path d="M10.6 6.2h2.8v2.6H16v2.8h-2.6v2.6h-2.8v-2.6H8V8.8h2.6z" fill="var(--surface)"/>`;
 const page = (size, scale) => `<!doctype html><style>html,body{margin:0;width:${size}px;height:${size}px;background:${BG}}svg{display:block}</style>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${size}" height="${size}" style="color:${PIN};--surface:${CROSS}"><g transform="translate(12 12) scale(${scale}) translate(-12 -12)">${inner}</g></svg>`;
 

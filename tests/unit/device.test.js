@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isStandalone, openPlace } from '../../js/lib/device.js';
+import { isStandalone, openPlace, parseAppVersion } from '../../js/lib/device.js';
 
 const UA = {
   iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
@@ -53,4 +53,9 @@ test('아이폰의 크롬·네이버 앱은 없는 공유 버튼을 안내하지
 test('안드로이드·PC 브라우저는 other', () => {
   assert.equal(openPlace(UA.androidPhone, 5, false), 'other');
   assert.equal(openPlace(UA.windowsChrome, 0, false), 'other');
+});
+
+test('받은 화면에서 버전을 읽는다', () => {
+  assert.equal(parseAppVersion('<meta name="app-version" content="0.3.0-1105a">'), '0.3.0-1105a');
+  assert.equal(parseAppVersion('오류 화면'), '');
 });

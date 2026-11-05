@@ -1,14 +1,16 @@
 /*
  * 임장 지도 디자인 기준 (토스·카카오T 참고)
- * 레이아웃: 위 상단바, 가운데 지도(검색창·내 위치·매물 추가가 떠 있음), 아래 시트(내 매물). 시트는 지도를 덮지 않습니다.
+ * 레이아웃: 아래 탭(지도·매물 목록·설정)으로 화면 전체를 바꿉니다. 지도의 왼쪽 아래 카카오 로고는 가리지 않습니다.
  * 1) 화면마다 주요 버튼 하나, 크게  2) 선·그림자 대신 여백과 연회색 면, 그림자는 지도 위에 뜬 것만
  * 3) 글씨 3단계: 굵은 제목 / 본문 / 회색 보조  4) 강조색은 하나(--accent)  5) 누르는 곳은 44px 이상
- * 색: 주황 #F96949(2026-11-05 사용자 선택). 옅은 주황은 쓰지 않습니다. 주황은 최소한으로만 씁니다.
+ * 색: 주황 #F96949(2026-11-05 사용자 선택). 주황은 최소한으로만 씁니다. 옅은 주황은 목록의 날짜·지역 띠에만 씁니다.
  * 버튼: 큰 버튼은 주황 테두리만, 작은 버튼은 주황으로 채워도 됩니다. 글자 버튼과 아이콘은 무채색입니다.
  * 색 대비: 본문·보조 글씨는 4.5:1 이상. #F96949는 흰 바탕의 작은 글자로 쓰면 대비가 약 2.9:1이라 글자색으로 쓰지 않습니다.
  */
 :root {
   --top-gap: 0px;
+  --band: #FEF1EC;
+  --band-ink: #B4502F;
   --bg: #f2f4f6;
   --surface: #ffffff;
   --fill: #f2f4f6;
@@ -39,11 +41,12 @@
 }
 /* 아이폰 홈 화면 앱: 상태 표시줄 아래로 약 47pt까지 흐림 효과가 내려와 글자와 겹칩니다(폰 캡처로 확인). */
 .ios-app { --top-gap: 18px; }
-.ios-app .topbar { padding-bottom: 6px; }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #101217;
     --surface: #1b1d23;
+    --band: #3F2A23;
+    --band-ink: #FFB199;
     --fill: #2a2d35;
     --line: #2f333b;
     --line-strong: #454a54;
@@ -98,21 +101,52 @@ p { margin: 0; }
   height: 100vh;
   height: 100dvh;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
 }
-
-/* 상단바 */
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 12px) max(20px, env(safe-area-inset-right, 0px)) 12px max(20px, env(safe-area-inset-left, 0px));
+/* 탭마다 한 화면만 보입니다. */
+.app[data-tab="map"] .sheet, .app[data-tab="map"] .settings,
+.app[data-tab="list"] .stage, .app[data-tab="list"] .settings,
+.app[data-tab="settings"] .stage, .app[data-tab="settings"] .sheet, .app[data-tab="settings"] .add-btn { display: none; }
+.app[data-picking="true"] .tabbar { display: none; }
+.tabbar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 6px 0 calc(env(safe-area-inset-bottom, 0px) + 4px);
   background: var(--surface);
+  box-shadow: 0 -1px 0 var(--line);
 }
-.brand { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
-.brand .mark { color: var(--accent); flex: none; }
-.topbar .text-btn { margin-block: -8px; flex: none; color: var(--accent-text); }
+.tab {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-height: 46px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+.tab[aria-pressed="true"] { color: var(--ink); }
+.tab[aria-pressed="true"] svg { color: var(--accent); }
+.settings { min-height: 0; overflow: auto; padding: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 12px) 20px 20px; background: var(--surface); }
+.settings h1 { margin: 0 0 12px; font-size: 24px; font-weight: 700; }
+.set-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 56px; font-size: 16px; font-weight: 600; }
+.set-row span { font-size: 14px; font-weight: 500; color: var(--ink-3); }
+.reload-box {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 76px);
+  left: 16px;
+  right: 16px;
+  z-index: 55;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--float-shadow);
+  font-size: 15px;
+}
 
 /* 지도 영역 */
 .stage { position: relative; min-height: 0; overflow: hidden; background: var(--bg); }
@@ -132,7 +166,7 @@ p { margin: 0; }
 .search {
   position: absolute;
   z-index: 5;
-  top: 12px;
+  top: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 12px);
   left: max(16px, env(safe-area-inset-left, 0px));
   right: max(16px, env(safe-area-inset-right, 0px));
   display: flex;
@@ -183,7 +217,7 @@ p { margin: 0; }
   touch-action: pan-y;
   position: absolute;
   z-index: 6;
-  top: 72px;
+  top: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 72px);
   left: max(16px, env(safe-area-inset-left, 0px));
   right: max(16px, env(safe-area-inset-right, 0px));
   max-height: calc(100% - 140px);
@@ -241,55 +275,20 @@ p { margin: 0; }
   box-shadow: 0 0 0 7px var(--me-ring);
 }
 
-/* 아래 시트 */
-.sheet {
-  position: relative;
-  z-index: 10;
-  min-height: 0;
-  max-height: 44vh;
-  max-height: 44dvh;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  background: var(--surface);
-  box-shadow: var(--sheet-shadow);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-.sheet-head {
-  touch-action: none; /* 손잡이를 끌 때 화면이 같이 밀리지 않게 */
-  display: grid;
-  gap: 8px;
-  width: 100%;
-  padding: 8px max(20px, env(safe-area-inset-right, 0px)) 12px max(20px, env(safe-area-inset-left, 0px));
-  border: 0;
-  background: none;
-  color: var(--ink);
-  text-align: left;
-}
-.grabber {
-  justify-self: center;
-  width: 36px;
-  height: 5px;
-  border-radius: 3px;
-  background: var(--line-strong);
-}
+/* 내 매물 탭: 화면 전체 */
+.sheet { min-height: 0; overflow: auto; overscroll-behavior: contain; background: var(--surface); }
+.sheet-head { padding: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 12px) max(20px, env(safe-area-inset-right, 0px)) 12px max(20px, env(safe-area-inset-left, 0px)); }
 .sheet-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.sheet-title { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.sheet-title { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
 .score { flex: none; font-size: 14px; font-weight: 600; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .score[data-done="true"] { color: var(--accent-text); }
 .sheet-body {
-  position: relative; /* 화면 밖 글자(.sr-only)가 문서를 늘리지 않게 스크롤 안에 가둡니다 */
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
+  position: relative; /* 화면 밖 글자(.sr-only)가 문서를 늘리지 않게 안에 가둡니다 */
   display: grid;
   align-content: start;
   gap: 12px;
-  padding: 0 max(20px, env(safe-area-inset-right, 0px)) 20px max(20px, env(safe-area-inset-left, 0px));
+  padding: 0 max(20px, env(safe-area-inset-right, 0px)) 76px max(20px, env(safe-area-inset-left, 0px));
 }
-.sheet[data-collapsed="true"] .sheet-body { display: none; }
-.sheet[data-size="max"] { max-height: 80vh; max-height: 80dvh; }
-/* 목록을 크게 보면 지도 자리가 좁아 떠 있는 버튼을 숨깁니다. */
-.app[data-sheet="max"] .fab, .app[data-sheet="max"] .add-btn { display: none; }
 .lead { font-size: 15px; color: var(--ink-2); }
 
 /* 입력과 버튼 */
@@ -324,7 +323,7 @@ p { margin: 0; }
 }
 .form-msg[data-tone="info"] { background: var(--fill); color: var(--ink-2); }
 .form-msg[data-tone="ok"] { background: var(--ok-soft); color: var(--ok-text); }
-.top-msg { position: absolute; top: 76px; left: 16px; right: 16px; z-index: 40; box-shadow: var(--float-shadow); }
+.top-msg { position: fixed; top: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 76px); left: 16px; right: 16px; z-index: 40; box-shadow: var(--float-shadow); }
 
 /* 작은 버튼은 주황으로 채웁니다. 흰 글씨 대비가 약해서 글자를 굵고 짧게 씁니다. */
 .fill-btn {
@@ -342,9 +341,9 @@ p { margin: 0; }
 .fill-btn:disabled { opacity: .45; }
 /* 왼쪽 아래는 카카오 로고 자리라 비워 둡니다. 내 위치 버튼 위에 쌓습니다. */
 .add-btn {
-  position: absolute;
+  position: fixed;
   right: 12px;
-  bottom: 68px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 56px + 68px); /* 탭 줄 + 내 위치 버튼 위 */
   z-index: 5;
   box-shadow: var(--float-shadow);
 }
@@ -356,7 +355,7 @@ p { margin: 0; }
   border: 3px solid #ffffff;
   box-shadow: 0 1px 4px rgb(0 0 0 / .35);
 }
-/* 왼쪽 아래 카카오 로고를 가리지 않게 그 위에 띄웁니다. */
+/* 왼쪽 아래 카카오 로고와 내 위치 버튼을 가리지 않게 그 위에 띄웁니다. */
 .pick-bar {
   position: absolute;
   left: 12px;
@@ -397,7 +396,21 @@ p { margin: 0; }
 
 /* 내 매물 목록 */
 .muted { font-size: 14px; color: var(--ink-3); }
-.notice { display: grid; gap: 6px; padding: 14px; border-radius: var(--r-lg); background: var(--fill); }
+.notice {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 72px);
+  left: 12px;
+  right: 12px;
+  z-index: 7;
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--float-shadow);
+}
+.notice-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 4px; }
+.notice-head .clear-btn { margin: -10px -10px 0 0; }
 .notice strong { font-size: 15px; }
 .next-help { font-size: 14px; color: var(--ink-2); white-space: pre-line; }
 .view-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: var(--r-md); background: var(--fill); }
@@ -411,7 +424,7 @@ p { margin: 0; }
   font-weight: 600;
 }
 .view-tabs button[aria-pressed="true"] { background: var(--surface); color: var(--ink); }
-.list-head { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--fill); font-size: 14px; font-weight: 700; color: var(--ink-2); }
+.list-head { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--band); font-size: 14px; font-weight: 700; color: var(--band-ink); }
 .list-head span:last-child { flex: none; font-weight: 500; color: var(--ink-3); }
 .listings { list-style: none; margin: 0; padding: 0; display: grid; }
 .listing {

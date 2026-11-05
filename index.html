@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1b1d23" media="(prefers-color-scheme: dark)">
-<meta name="app-version" content="0.2.0-1105h">
+<meta name="app-version" content="0.3.0-1105a">
 <title>약국 임장노트</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="stylesheet" href="./fonts/pretendard/pretendardvariable-dynamic-subset.css">
-<link rel="stylesheet" href="./css/app.css?v=0.2.0-1105h">
+<link rel="stylesheet" href="./css/app.css?v=0.3.0-1105a">
 <script>
 // 아이폰 홈 화면 앱은 위쪽 흐림 효과가 앱 글자와 겹쳐서 윗부분을 띄웁니다(css/app.css의 --top-gap).
 if (window.navigator.standalone === true) document.documentElement.classList.add('ios-app');
@@ -18,34 +18,22 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
 <script type="importmap">
 {
   "imports": {
-    "./js/config.js": "./js/config.js?v=0.2.0-1105h",
-    "./js/lib/device.js": "./js/lib/device.js?v=0.2.0-1105h",
-    "./js/lib/format.js": "./js/lib/format.js?v=0.2.0-1105h",
-    "./js/lib/listings.js": "./js/lib/listings.js?v=0.2.0-1105h",
-    "./js/lib/messages.js": "./js/lib/messages.js?v=0.2.0-1105h",
-    "./js/lib/places.js": "./js/lib/places.js?v=0.2.0-1105h",
-    "./js/lib/store.js": "./js/lib/store.js?v=0.2.0-1105h"
+    "./js/config.js": "./js/config.js?v=0.3.0-1105a",
+    "./js/lib/device.js": "./js/lib/device.js?v=0.3.0-1105a",
+    "./js/lib/format.js": "./js/lib/format.js?v=0.3.0-1105a",
+    "./js/lib/listings.js": "./js/lib/listings.js?v=0.3.0-1105a",
+    "./js/lib/messages.js": "./js/lib/messages.js?v=0.3.0-1105a",
+    "./js/lib/places.js": "./js/lib/places.js?v=0.3.0-1105a",
+    "./js/lib/store.js": "./js/lib/store.js?v=0.3.0-1105a"
   }
 }
 </script>
 </head>
 <body>
-<div class="app">
-  <header class="topbar">
-    <div class="brand">
-      <svg class="mark" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-        <path d="M12 2.5c-4.1 0-7.5 3.2-7.5 7.3 0 5.3 6.4 11.1 6.7 11.4.4.4 1.1.4 1.5 0 .3-.3 6.8-6.1 6.8-11.4 0-4.1-3.4-7.3-7.5-7.3z" fill="currentColor"/>
-        <path d="M10.6 6.2h2.8v2.6H16v2.8h-2.6v2.6h-2.8v-2.6H8V8.8h2.6z" fill="var(--surface)"/>
-      </svg>
-      <span>약국 임장노트</span>
-    </div>
-    <button class="text-btn" id="topReload" type="button">다시 불러오기</button>
-  </header>
-
+<div class="app" id="app" data-tab="map">
   <main class="stage">
     <div id="map" role="region" aria-label="지도"></div>
     <div id="mapMsg" class="map-msg" hidden></div>
-    <p id="reloadMsg" class="form-msg top-msg" role="alert" hidden></p>
     <form id="searchForm" class="search" role="search">
       <svg class="search-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5 20 20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <input id="q" type="search" placeholder="장소나 주소 검색" enterkeyhint="search" autocomplete="off" aria-label="장소나 주소 검색">
@@ -56,8 +44,23 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="3.5" fill="currentColor"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <span>내 위치</span>
     </button>
-    <button id="addBtn" class="fill-btn add-btn" type="button">+ 매물 추가</button>
-    <p id="toast" class="form-msg top-msg" role="status" hidden></p>
+    <div class="notice" id="placeNotice" hidden>
+      <div class="notice-head">
+        <strong>여기에 저장한 내용은 홈 화면 아이콘에서 안 보여요</strong>
+        <button class="clear-btn" id="noticeClose" type="button" aria-label="안내 닫기"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
+      </div>
+      <p class="next-help" id="placeHelp"></p>
+    </div>
+    <div id="pinCard" class="pick-bar" hidden>
+      <div class="place-info">
+        <strong id="pinName"></strong>
+        <span id="pinLine"></span>
+      </div>
+      <div class="pick-actions">
+        <button class="text-btn" id="pinClose" type="button">닫기</button>
+        <button class="fill-btn" id="pinOpen" type="button">자세히 보기</button>
+      </div>
+    </div>
     <div id="placeCard" class="pick-bar" hidden>
       <div class="place-info">
         <strong id="placeName"></strong>
@@ -77,29 +80,47 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
     </div>
   </main>
 
-  <section class="sheet" id="sheet" data-size="mid" data-collapsed="false">
-    <button class="sheet-head" id="sheetToggle" type="button" aria-expanded="true" aria-controls="sheetBody">
-      <span class="grabber" aria-hidden="true"></span>
+  <section class="sheet" id="sheet">
+    <div class="sheet-head">
       <span class="sheet-row">
         <span class="sheet-title">내 매물</span>
         <span class="score" id="count">0개</span>
       </span>
-    </button>
+    </div>
     <div class="sheet-body" id="sheetBody">
-      <div class="notice" id="placeNotice" hidden>
-        <strong>여기에 저장한 내용은 홈 화면 아이콘에서 안 보여요</strong>
-        <p class="next-help" id="placeHelp"></p>
-      </div>
       <p class="form-msg" id="loadMsg" role="alert" hidden></p>
-      <p class="muted" id="empty">아직 저장한 매물이 없어요. 위의 '매물 추가'로 시작해 보세요.</p>
+      <p class="muted" id="empty">아직 저장한 매물이 없어요. 아래 '+ 매물 추가'로 시작해 보세요.</p>
       <div class="view-tabs" id="viewTabs" role="group" aria-label="목록 보기" hidden>
         <button type="button" data-view="date" aria-pressed="true">임장 날짜별</button>
         <button type="button" data-view="region" aria-pressed="false">지역별</button>
       </div>
       <ul class="listings" id="list"></ul>
-      <div class="foot"><span>버전 <span id="ver"></span></span></div>
     </div>
   </section>
+
+  <section class="settings" id="settingsPanel">
+    <h1>설정</h1>
+    <div class="set-row">백업하기<span>준비 중</span></div>
+    <div class="set-row">버전<span id="ver"></span></div>
+  </section>
+
+  <button id="addBtn" class="fill-btn add-btn" type="button">+ 매물 추가</button>
+  <p id="toast" class="form-msg top-msg" role="status" hidden></p>
+
+  <nav class="tabbar" id="tabbar" aria-label="화면">
+    <button class="tab" type="button" data-tab="map" aria-pressed="true">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 2.5c-4.1 0-7.5 3.2-7.5 7.3 0 5.3 6.4 11.1 6.7 11.4.4.4 1.1.4 1.5 0 .3-.3 6.8-6.1 6.8-11.4 0-4.1-3.4-7.3-7.5-7.3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="9.8" r="2.4" fill="currentColor"/></svg>
+      <span>지도</span>
+    </button>
+    <button class="tab" type="button" data-tab="list" aria-pressed="false">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M6.5 3h11A1.5 1.5 0 0 1 19 4.5v15a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.500v-15A1.500 1.500 0 0 1 6.500 3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 8h6M9 12h6M9 16h3.500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>매물 목록</span>
+    </button>
+    <button class="tab" type="button" data-tab="settings" aria-pressed="false">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" fill="currentColor"/></svg>
+      <span>설정</span>
+    </button>
+  </nav>
 
   <!-- 매물 양식 -->
   <div class="screen" id="formScreen" hidden>
@@ -172,23 +193,29 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
       </div>
     </div>
   </div>
+  <!-- 앱이나 지도를 불러오지 못했을 때만 보입니다 -->
+  <div class="reload-box" id="reloadBox" role="alert" hidden>
+    <p id="reloadMsg"></p>
+    <button class="fill-btn" id="topReload" type="button">다시 불러오기</button>
+  </div>
 </div>
 <script>
-// 홈 화면 앱에는 새로고침 버튼이 없어서 직접 둡니다.
+// 홈 화면 앱에는 새로고침 버튼이 없습니다. 앱이나 지도를 불러오지 못했을 때만 다시 불러오기를 보여 줍니다.
 // 모듈(app.js)이 실패해도 이 버튼은 살아 있어야 하므로 일반 script로 연결합니다.
 (function () {
+  var box = document.getElementById('reloadBox');
   var btn = document.getElementById('topReload');
   var msg = document.getElementById('reloadMsg');
   var watchdogShown = false;
   function say(text) {
-    msg.dataset.tone = 'fail';
     msg.textContent = text;
-    msg.hidden = false;
+    box.hidden = false;
   }
+  window.__showReload = say;
+  window.__hideReload = function () { box.hidden = true; };
   async function reloadApp() {
     btn.disabled = true;
     btn.textContent = '불러오는 중…';
-    msg.hidden = true;
     var ok = false;
     try {
       var c = new AbortController();
@@ -204,7 +231,6 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
       say('인터넷이 안 잡혀요. 연결된 뒤 다시 눌러 주세요.');
       return;
     }
-    if (window.__beforeReload) window.__beforeReload();
     location.reload();
   }
   btn.addEventListener('click', reloadApp);
@@ -212,15 +238,15 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
   var watch = setTimeout(function () {
     if (window.__appStarted) return;
     document.getElementById('ver').textContent = document.querySelector('meta[name="app-version"]').content;
-    say("앱을 불러오지 못했어요. 인터넷을 확인하고 위쪽 '다시 불러오기'를 눌러 주세요.");
+    say('앱을 불러오지 못했어요. 인터넷을 확인하고 눌러 주세요.');
     watchdogShown = true;
   }, 8000);
   window.__onAppStarted = function () {
     clearTimeout(watch);
-    if (watchdogShown) msg.hidden = true;
+    if (watchdogShown) box.hidden = true;
   };
 })();
 </script>
-<script type="module" src="./js/app.js?v=0.2.0-1105h"></script>
+<script type="module" src="./js/app.js?v=0.3.0-1105a"></script>
 </body>
 </html>

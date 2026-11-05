@@ -1,12 +1,12 @@
 // 약국 임장노트: 지도 위에 임장한 매물을 기록합니다. 데이터는 이 기기에만 저장합니다.
 import { KAKAO_JS_KEY } from './config.js';
-import { isStandalone, openPlace } from './lib/device.js';
+import { isStandalone, openPlace, parseAppVersion } from './lib/device.js';
 import { createStore } from './lib/store.js';
 import { rankPlaces, formatDistance } from './lib/places.js';
 import { toPyeong, fromPyeong } from './lib/format.js';
 import {
   FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint,
-  detailGroups, regionFromAddress, createListingStore, makeListingId, groupByVisitDate, groupByRegion, listingFacts,
+  detailGroups, regionFromAddress, createListingStore, makeListingId, groupByVisitDate, groupByRegion, listingFacts, regionOf,
 } from './lib/listings.js';
 import {
   kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage, saveErrorMessage, loadErrorMessage,
@@ -85,15 +85,16 @@ function loadKakaoSdk(key) {
   });
 }
 
-function mapUnavailable(message) {
+function mapUnavailable(message, canRetry = true) {
   showMapMessage('지도를 불러오지 못했어요', message);
   setSearchEnabled(false);
   renderLocationTools();
+  if (canRetry) window.__showReload?.('지도를 불러오지 못했어요.');
 }
 
 async function initMap() {
   if (!KAKAO_JS_KEY) {
-    mapUnavailable(kakaoLoadMessage('no-key'));
+    mapUnavailable(kakaoLoadMessage('no-key'), false);
     return;
   }
   try {
@@ -105,13 +106,18 @@ async function initMap() {
       level: first ? 4 : 5,
     });
     let drawn = false;
+    let askedReload = false;
     kakao.maps.event.addListener(map, 'tilesloaded', () => {
       drawn = true;
       $('mapMsg').hidden = true; // 시간 초과 뒤에 늦게 떠도 안내를 걷습니다.
+      if (askedReload) window.__hideReload?.(); // 지도 때문에 띄운 버튼만 걷습니다.
     });
     kakao.maps.event.addListener(map, 'click', onMapClick);
     setTimeout(() => {
-      if (!drawn) showMapMessage('지도 그림이 안 떴어요', kakaoLoadMessage('tiles-timeout'));
+      if (drawn) return;
+      showMapMessage('지도 그림이 안 떴어요', kakaoLoadMessage('tiles-timeout'));
+      askedReload = true;
+      window.__showReload?.('지도 그림이 안 떴어요.');
     }, WAIT_MS);
     renderPins();
     renderLocationTools();
@@ -133,7 +139,7 @@ function renderPins() {
       position: new kakao.maps.LatLng(item.lat, item.lng),
       title: item.name,
     });
-    kakao.maps.event.addListener(marker, 'click', () => openDetail(item.id));
+    kakao.maps.event.addListener(marker, 'click', () => showPinCard(item.id));
     pins.set(item.id, marker);
   }
 }
@@ -207,7 +213,6 @@ function onSearch(ev) {
   const q = $('q').value.trim();
   if (!q || !kakao) return;
   if (cardPlace) hidePlaceCard();
-  if (sheetSize === 'max') setSheetSize('mid'); // 결과를 볼 지도 자리를 마련합니다.
   $('q').blur(); // 아이폰 키보드를 내려 결과가 보이게
   searchPlaces(q, (r) => {
     const ul = $('results');
@@ -248,6 +253,7 @@ function onSearch(ev) {
 let cardPlace = null;
 
 function showPlaceCard(p) {
+  if (pinId) hidePinCard();
   cardPlace = p;
   $('placeName').textContent = p.place_name;
   $('placeAddress').textContent = p.road_address_name || p.address_name || '';
@@ -281,6 +287,27 @@ function onClearSearch() {
   if (cardPlace) hidePlaceCard();
   searchMarker?.setMap(null);
   $('q').focus();
+}
+
+// 핀을 누르면 지도를 그대로 둔 채 요약을 보여 줍니다.
+let pinId = null;
+
+function showPinCard(id) {
+  const item = items.find((x) => x.id === id);
+  if (!item) return;
+  if (cardPlace) hidePlaceCard();
+  pinId = id;
+  $('pinName').textContent = item.name;
+  const facts = listingFacts(item).filter((f) => f.label !== '보증금' && f.label !== '월세');
+  $('pinLine').textContent = [regionOf(item), ...facts.map((f) => `${f.label} ${f.value}`)].filter(Boolean).join(' · ');
+  $('pinCard').hidden = false;
+  $('addBtn').hidden = true;
+}
+
+function hidePinCard() {
+  pinId = null;
+  $('pinCard').hidden = true;
+  if (!picking) $('addBtn').hidden = false;
 }
 
 function makeSearchDot() {
@@ -388,7 +415,7 @@ function setView(next) {
   view = next;
   store.write('view', next); // 다음에 열 때도 같은 보기로. 실패해도 지장 없습니다.
   renderList();
-  $('sheetBody').scrollTop = 0;
+  $('sheet').scrollTop = 0;
 }
 
 function persistItems(next) {
@@ -470,7 +497,7 @@ function fieldInput(f) {
   if (f.kind === 'money') unit = '만원';
   if (f.kind === 'money-or-new') {
     unit = '만원';
-    placeholder = "금액 또는 '신규'";
+    if (f.placeholder === undefined) placeholder = "금액 또는 '신규'";
   }
   if (f.kind === 'area') unit = '㎡';
   input.placeholder = placeholder;
@@ -688,7 +715,7 @@ function onSaveListing(ev) {
   const located = r.data.lat !== null;
   closeForm();
   toast('저장했어요.');
-  if (located) moveMapTo(r.data.lat, r.data.lng);
+  if (located && tab === 'map') moveMapTo(r.data.lat, r.data.lng);
 }
 
 // 양식 안의 위치 찍기 세 가지
@@ -734,18 +761,21 @@ let picking = false;
 let pickPos = null;
 let pickOverlay = null;
 let pickAddress = null;
+let pickReturnTab = 'map';
 
 function onLocMap() {
   if (!map) return;
   picking = true;
-  $('toast').hidden = true;
+  pickReturnTab = tab;
+  setTab('map');
+  $('app').dataset.picking = 'true';
   hidePlaceCard();
+  if (pinId) hidePinCard();
   pickPos = draftLocation ? { lat: draftLocation.lat, lng: draftLocation.lng } : null;
   pickAddress = null;
   $('pickText').textContent = '지도에서 약국 위치를 눌러 주세요.';
   $('formScreen').hidden = true;
   $('pickBar').hidden = false;
-  $('sheet').hidden = true;
   $('addBtn').hidden = true;
   map.relayout();
   drawPick();
@@ -770,10 +800,10 @@ function endPick(ok) {
   picking = false;
   pickOverlay?.setMap(null);
   $('pickBar').hidden = true;
-  $('sheet').hidden = false;
+  delete $('app').dataset.picking;
   $('addBtn').hidden = false;
   $('formScreen').hidden = false;
-  map.relayout();
+  setTab(pickReturnTab);
   if (ok && pickPos) {
     setDraftLocation(pickPos.lat, pickPos.lng, '');
     if (pickAddress) applyAddress(pickAddress.road, pickAddress.jibun);
@@ -785,6 +815,7 @@ function onMapClick(mouseEvent) {
   $('results').hidden = true;
   if (!picking) {
     if (cardPlace) hidePlaceCard();
+    if (pinId) hidePinCard();
     return;
   }
   const ll = mouseEvent.latLng;
@@ -862,63 +893,35 @@ function onDeleteConfirmed() {
 }
 
 // ---------- 시트 접기 ----------
-// 시트 크기: 'min' 제목만 | 'mid' 기본 | 'max' 크게. 손잡이를 끌거나 눌러서 바꿉니다.
-let sheetSize = 'mid';
-let drag = null;
-let justDragged = false;
+// ---------- 하단 탭 ----------
+let tab = 'map';
 
-function setSheetSize(size) {
-  const sheet = $('sheet');
-  sheetSize = size;
-  sheet.dataset.size = size;
-  document.querySelector('.app').dataset.sheet = size;
-  sheet.dataset.collapsed = String(size === 'min');
-  sheet.style.height = '';
-  sheet.style.maxHeight = '';
-  $('sheetToggle').setAttribute('aria-expanded', String(size !== 'min'));
-  requestAnimationFrame(() => map?.relayout());
-}
-
-function onToggleSheet() {
-  if (justDragged) { // 끌고 난 뒤 따라오는 누름은 무시합니다.
-    justDragged = false;
-    return;
+function setTab(next) {
+  tab = next;
+  $('app').dataset.tab = next;
+  for (const b of $('tabbar').querySelectorAll('button')) {
+    b.setAttribute('aria-pressed', String(b.dataset.tab === next));
   }
-  setSheetSize(sheetSize === 'min' ? 'mid' : 'min');
+  $('toast').hidden = true;
+  // 숨겨 둔 지도는 크기를 모르므로 돌아올 때 다시 맞춥니다.
+  if (next === 'map') map?.relayout();
 }
 
-function onSheetDown(ev) {
-  const sheet = $('sheet');
-  drag = { y: ev.clientY, h: sheet.getBoundingClientRect().height, moved: false };
-  $('sheetToggle').setPointerCapture?.(ev.pointerId);
-}
+// ---------- 새 버전 자동 적용 ----------
+const busy = () => !$('formScreen').hidden || !$('detailScreen').hidden || !$('modal').hidden || picking;
 
-function onSheetMove(ev) {
-  if (!drag) return;
-  const dy = ev.clientY - drag.y;
-  if (!drag.moved && Math.abs(dy) < 6) return;
-  const sheet = $('sheet');
-  drag.moved = true;
-  sheet.dataset.collapsed = 'false'; // 끄는 동안은 내용이 보이게
-  const head = $('sheetToggle').getBoundingClientRect().height;
-  const h = Math.min(Math.max(drag.h - dy, head), window.innerHeight * 0.85);
-  sheet.style.height = `${h}px`;
-  sheet.style.maxHeight = `${h}px`;
-  drag.now = h;
-  drag.head = head;
-}
-
-function onSheetUp() {
-  if (!drag) return;
-  const d = drag;
-  drag = null;
-  if (!d.moved) return; // 누르기는 click에서 처리합니다.
-  justDragged = true;
-  setTimeout(() => { justDragged = false; }, 400);
-  const vh = window.innerHeight;
-  if (d.now < d.head + 70) setSheetSize('min');
-  else if (d.now > vh * 0.6) setSheetSize('max');
-  else setSheetSize('mid');
+async function checkForUpdate() {
+  if (busy()) return; // 입력하거나 보고 있는 중에는 건드리지 않습니다.
+  try {
+    const r = await fetch(location.pathname, { cache: 'reload' });
+    if (!r.ok) return;
+    const remote = parseAppVersion(await r.text());
+    if (!remote || remote === VERSION || busy()) return;
+    // 같은 버전으로 여러 번 다시 읽지 않습니다(옛 파일이 잠시 남아 있어도 무한 반복 방지).
+    if (sessionStorage.getItem('imjang-map:reloaded-for') === remote) return;
+    sessionStorage.setItem('imjang-map:reloaded-for', remote);
+    location.reload();
+  } catch { /* 신호가 없으면 다음에 확인합니다 */ }
 }
 
 // ---------- 시작 ----------
@@ -928,6 +931,7 @@ function showPlaceNotice() {
   const text = PLACE === 'kakao' ? kakaoInappMessage(navigator.userAgent) : standaloneHelp(PLACE);
   $('placeHelp').textContent = text;
   $('placeNotice').hidden = false;
+  $('noticeClose').addEventListener('click', () => { $('placeNotice').hidden = true; });
 }
 
 function loadItems() {
@@ -941,6 +945,8 @@ function loadItems() {
   el.textContent = loadErrorMessage(r.reason, r.detail);
   el.hidden = false;
   $('addBtn').disabled = true;
+  toast(el.textContent, 'fail'); // 처음 화면이 지도라 목록의 안내만으로는 안 보입니다.
+  window.__showReload?.('매물을 읽지 못했어요.');
 }
 
 $('ver').textContent = VERSION;
@@ -948,11 +954,18 @@ $('searchForm').addEventListener('submit', onSearch);
 $('q').addEventListener('input', () => { $('qClear').hidden = !$('q').value; });
 $('qClear').addEventListener('click', onClearSearch);
 $('locate').addEventListener('click', onLocate);
-$('sheetToggle').addEventListener('click', onToggleSheet);
-$('sheetToggle').addEventListener('pointerdown', onSheetDown);
-$('sheetToggle').addEventListener('pointermove', onSheetMove);
-$('sheetToggle').addEventListener('pointerup', onSheetUp);
-$('sheetToggle').addEventListener('pointercancel', onSheetUp);
+for (const b of $('tabbar').querySelectorAll('button')) {
+  b.addEventListener('click', () => setTab(b.dataset.tab));
+}
+$('pinClose').addEventListener('click', hidePinCard);
+$('pinOpen').addEventListener('click', () => {
+  const id = pinId;
+  hidePinCard();
+  openDetail(id);
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkForUpdate();
+});
 $('addBtn').addEventListener('click', () => openForm());
 $('placeAdd').addEventListener('click', addFromPlace);
 $('placeClose').addEventListener('click', hidePlaceCard);
@@ -991,6 +1004,7 @@ $('editBtn').addEventListener('click', () => openForm(items.find((x) => x.id ===
 $('mapViewBtn').addEventListener('click', () => {
   const item = items.find((x) => x.id === detailId);
   $('detailScreen').hidden = true;
+  setTab('map');
   if (item) moveMapTo(item.lat, item.lng);
 });
 $('deleteBtn').addEventListener('click', () => {
@@ -1011,6 +1025,8 @@ renderList();
 renderDraftLocation();
 renderLocationTools();
 initMap();
+
+checkForUpdate();
 
 window.__appStarted = true;
 window.__onAppStarted?.();

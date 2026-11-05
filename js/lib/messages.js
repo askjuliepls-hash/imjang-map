@@ -10,11 +10,11 @@ export function kakaoLoadMessage(reason, origin = '') {
     case 'sdk-missing':
       return '카카오 지도 파일은 받았지만 내용이 비어 있어요. JavaScript 키가 맞는지 확인해 주세요.';
     case 'timeout':
-      return "카카오 지도가 15초 안에 응답하지 않았어요. 인터넷 연결을 확인하고 위쪽 '다시 불러오기'를 눌러 주세요.";
+      return "카카오 지도가 15초 안에 응답하지 않았어요. 인터넷 연결을 확인하고 '다시 불러오기'를 눌러 주세요.";
     case 'tiles-timeout':
-      return "지도 칸은 만들었지만 지도 그림이 15초 안에 안 떴어요. 인터넷 연결을 확인하고 위쪽 '다시 불러오기'를 눌러 주세요.";
+      return "지도 칸은 만들었지만 지도 그림이 15초 안에 안 떴어요. 인터넷 연결을 확인하고 '다시 불러오기'를 눌러 주세요.";
     default:
-      return "카카오 지도를 불러오지 못했어요. 위쪽 '다시 불러오기'를 눌러 보고, 계속되면 Claude에게 알려 주세요.";
+      return "카카오 지도를 불러오지 못했어요. '다시 불러오기'를 눌러 보고, 계속되면 Claude에게 알려 주세요.";
   }
 }
 
@@ -70,5 +70,5 @@ export function saveErrorMessage(reason, detail = '') {
 }
 
 export function loadErrorMessage(reason, detail = '') {
-  return `저장된 매물을 읽지 못했어요. (${reason}${detail ? ` ${detail}` : ''}) 데이터를 덮어쓰지 않도록 추가를 막아 뒀어요. 위쪽 '다시 불러오기'를 눌러 보고, 그래도 이러면 캡처를 Claude에게 보내 주세요.`;
+  return `저장된 매물을 읽지 못했어요. (${reason}${detail ? ` ${detail}` : ''}) 데이터를 덮어쓰지 않도록 추가를 막아 뒀어요. '다시 불러오기'를 눌러 보고, 그래도 이러면 캡처를 Claude에게 보내 주세요.`;
 }
