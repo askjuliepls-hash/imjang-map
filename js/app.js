@@ -1,23 +1,17 @@
-// 임장 지도 — 2단계 뼈대: 카카오 지도·장소 검색·현재 위치·로그인·저장이
+// 약국 임장노트 — 1단계 연결 점검: 카카오 지도·장소 검색·현재 위치가
 // 실제 기기에서 작동하는지 '연결 점검' 목록으로 보여줍니다.
-import { KAKAO_JS_KEY, FIREBASE_CONFIG } from './config.js';
-import { deviceLabel } from './lib/device.js';
-import { formatWhen } from './lib/format.js';
-import {
-  kakaoLoadMessage, firebaseLoadMessage, authErrorMessage, firestoreErrorMessage, geoErrorMessage,
-} from './lib/messages.js';
+import { KAKAO_JS_KEY } from './config.js';
+import { kakaoLoadMessage, geoErrorMessage } from './lib/messages.js';
 
 const VERSION = document.querySelector('meta[name="app-version"]')?.content || 'dev';
 const DEFAULT_CENTER = { lat: 37.5665, lng: 126.978 }; // 서울시청 부근
 const WAIT_MS = 15000;
-const THIS_DEVICE = deviceLabel(navigator.userAgent, navigator.maxTouchPoints || 0);
-const SAVED_NOW_REFRESH = '저장했어요. 새로고침해서 그대로 남아 있는지 확인해 보세요.';
 
 const $ = (id) => document.getElementById(id);
 
 // ---------- 연결 점검 ----------
 const STATE_WORD = { wait: '대기', half: '진행 중', ok: '통과', fail: '실패' };
-const CHECK_IDS = ['map', 'search', 'gps', 'login', 'persist', 'sync'];
+const CHECK_IDS = ['map', 'search', 'gps'];
 const checks = Object.fromEntries(CHECK_IDS.map((id) => [id, 'wait']));
 
 function setCheck(id, state, msg) {
@@ -33,25 +27,6 @@ function setCheck(id, state, msg) {
   const done = passed === total;
   $('score').textContent = done ? `${total}개 모두 통과` : `${total}개 중 ${passed}개 통과`;
   $('score').dataset.done = String(done);
-}
-
-function setBusy(btn, busy, label) {
-  btn.disabled = busy;
-  btn.textContent = label;
-}
-
-// 버튼 바로 근처에 결과를 보여줍니다. tone: 'fail' | 'info' | 'ok'
-function showFormMsg(id, tone, text) {
-  const el = $(id);
-  el.dataset.tone = tone;
-  el.textContent = text;
-  el.hidden = false;
-  // 점검 시트 안에서 안내가 화면 밖이면 보이는 곳까지 스크롤합니다.
-  requestAnimationFrame(() => el.scrollIntoView({ block: 'nearest' }));
-}
-
-function hideFormMsg(id) {
-  $(id).hidden = true;
 }
 
 // ---------- 지도 ----------
@@ -222,156 +197,6 @@ function onLocate() {
   );
 }
 
-// ---------- 로그인·저장 ----------
-let fb = null;
-let auth = null;
-let db = null;
-let stopPing = null;
-let savedThisSession = false;
-let sawServerSnapshot = false;
-
-function setLoginEnabled(on) {
-  for (const id of ['email', 'password', 'loginBtn']) $(id).disabled = !on;
-}
-
-async function initFirebase() {
-  if (!FIREBASE_CONFIG) {
-    setCheck('login', 'fail', firebaseLoadMessage('no-config'));
-    setLoginEnabled(false);
-    return;
-  }
-  try {
-    fb = await import('../vendor/firebase.js');
-  } catch {
-    setCheck('login', 'fail', firebaseLoadMessage('load-failed'));
-    setLoginEnabled(false);
-    return;
-  }
-  const app = fb.initializeApp(FIREBASE_CONFIG);
-  auth = fb.getAuth(app);
-  db = fb.getFirestore(app);
-  fb.onAuthStateChanged(auth, (user) => (user ? onSignedIn(user) : onSignedOut()));
-}
-
-async function onLogin(ev) {
-  ev.preventDefault();
-  if (!auth) return;
-  document.activeElement?.blur?.(); // 아이폰 키보드를 내려 결과 안내가 가려지지 않게
-  const email = $('email').value.trim();
-  const password = $('password').value;
-  if (!email || !password) {
-    const msg = '이메일과 비밀번호를 모두 입력해 주세요.';
-    showFormMsg('loginMsg', 'fail', msg);
-    setCheck('login', 'fail', msg);
-    return;
-  }
-  hideFormMsg('loginMsg');
-  setBusy($('loginBtn'), true, '로그인하는 중…');
-  try {
-    await fb.signInWithEmailAndPassword(auth, email, password);
-    $('password').value = '';
-  } catch (err) {
-    const msg = authErrorMessage(err.code);
-    showFormMsg('loginMsg', 'fail', msg);
-    setCheck('login', 'fail', msg);
-  } finally {
-    setBusy($('loginBtn'), false, '로그인하기');
-  }
-}
-
-function onSignedIn(user) {
-  hideFormMsg('loginMsg');
-  $('who').textContent = user.email || '로그인됨';
-  $('logoutBtn').hidden = false;
-  $('loginForm').hidden = true;
-  $('account').hidden = false;
-  setCheck('login', 'ok', `${user.email} 계정으로 로그인했어요.`);
-  watchPing(user.uid);
-}
-
-function onSignedOut() {
-  if (stopPing) {
-    stopPing();
-    stopPing = null;
-  }
-  $('who').textContent = '로그인 전';
-  $('logoutBtn').hidden = true;
-  $('loginForm').hidden = false;
-  $('account').hidden = true;
-  $('lastSave').textContent = '';
-  hideFormMsg('saveMsg');
-  if (checks.login === 'ok') setCheck('login', 'wait', '로그아웃됐어요. 다시 로그인해 주세요.');
-}
-
-function pingRef(uid) {
-  return fb.doc(db, 'users', uid, 'meta', 'ping');
-}
-
-function watchPing(uid) {
-  if (stopPing) stopPing();
-  sawServerSnapshot = false;
-  stopPing = fb.onSnapshot(pingRef(uid), { includeMetadataChanges: true }, (snap) => {
-    const fromServer = !snap.metadata.fromCache;
-    const pending = snap.metadata.hasPendingWrites;
-    const firstFromServer = fromServer && !sawServerSnapshot;
-    if (fromServer) sawServerSnapshot = true;
-
-    if (!snap.exists()) {
-      $('lastSave').textContent = '저장 기록 없음';
-      if (firstFromServer) setCheck('persist', 'wait', "아직 저장한 적이 없어요. '테스트 저장하기'를 눌러보세요.");
-      return;
-    }
-    const d = snap.data({ serverTimestamps: 'estimate' });
-    const when = d.savedAt && typeof d.savedAt.toDate === 'function' ? d.savedAt.toDate() : null;
-    $('lastSave').textContent = `마지막 저장 · ${when ? formatWhen(when, new Date()) : '-'} · ${d.device || '알 수 없는 기기'}${pending ? ' · 보내는 중' : ''}`;
-    if (pending) return;
-
-    if (firstFromServer && !savedThisSession) {
-      setCheck('persist', 'ok', '새로 연 화면에서 저장한 값을 불러왔어요.');
-    } else if (savedThisSession && checks.persist !== 'ok') {
-      setCheck('persist', 'half', SAVED_NOW_REFRESH);
-    }
-    if (d.device && d.device !== THIS_DEVICE) {
-      setCheck('sync', 'ok', `${d.device}에서 저장한 값이 ${THIS_DEVICE}에서도 보여요.`);
-    }
-  }, (err) => {
-    const msg = firestoreErrorMessage(err.code);
-    showFormMsg('saveMsg', 'fail', msg);
-    setCheck('persist', 'fail', msg);
-  });
-}
-
-async function onSave() {
-  const user = auth?.currentUser;
-  if (!user) return;
-  setBusy($('saveBtn'), true, '저장하는 중…');
-  hideFormMsg('saveMsg');
-  savedThisSession = true;
-  try {
-    await fb.setDoc(pingRef(user.uid), {
-      savedAt: fb.serverTimestamp(),
-      device: THIS_DEVICE,
-      app: VERSION,
-    });
-    if (checks.persist === 'ok') {
-      showFormMsg('saveMsg', 'ok', '저장했어요.');
-    } else {
-      showFormMsg('saveMsg', 'info', SAVED_NOW_REFRESH);
-      setCheck('persist', 'half', SAVED_NOW_REFRESH);
-    }
-  } catch (err) {
-    const msg = firestoreErrorMessage(err.code);
-    showFormMsg('saveMsg', 'fail', msg);
-    setCheck('persist', 'fail', msg);
-  } finally {
-    setBusy($('saveBtn'), false, '테스트 저장하기');
-  }
-}
-
-async function onLogout() {
-  if (auth) await fb.signOut(auth);
-}
-
 // ---------- 시트 접기 ----------
 function onToggleSheet() {
   const sheet = $('sheet');
@@ -385,11 +210,7 @@ function onToggleSheet() {
 $('ver').textContent = VERSION;
 $('searchForm').addEventListener('submit', onSearch);
 $('locate').addEventListener('click', onLocate);
-$('loginForm').addEventListener('submit', onLogin);
-$('saveBtn').addEventListener('click', onSave);
-$('logoutBtn').addEventListener('click', onLogout);
 $('sheetToggle').addEventListener('click', onToggleSheet);
 window.addEventListener('resize', () => map?.relayout());
 
 initMap();
-initFirebase();

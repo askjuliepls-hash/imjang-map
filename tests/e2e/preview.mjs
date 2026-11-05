@@ -1,9 +1,10 @@
 // 대행 검증: 아이폰 크기 화면에서 앱을 자동으로 조작하고 캡처합니다.
-// 진짜 카카오·Firebase 대신 tests/e2e/mocks 의 가짜를 끼워 넣습니다.
+// 진짜 카카오 대신 tests/e2e/mocks 의 가짜를 끼워 넣습니다.
 // 사용법: npm run preview -- [캡처 저장 폴더]
 import puppeteer from 'puppeteer-core';
 import http from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -45,12 +46,11 @@ const server = http.createServer(async (req, res) => {
 
 const mocks = {
   kakao: await readFile(join(ROOT, 'tests/e2e/mocks/kakao-sdk.js'), 'utf8'),
-  firebase: await readFile(join(ROOT, 'tests/e2e/mocks/firebase.js'), 'utf8'),
   config: await readFile(join(ROOT, 'tests/e2e/mocks/config.js'), 'utf8'),
   configEmpty: await readFile(join(ROOT, 'tests/e2e/mocks/config-empty.js'), 'utf8'),
 };
 
-// mode: kakao 'mock' | '503' | 'block', firebase 'mock' | 'real', config 'mock' | 'empty' | 'real'
+// mode: kakao 'mock' | '503' | 'block', config 'mock' | 'empty' | 'real'
 async function openPage(browser, mode, scenario) {
   const context = await browser.createBrowserContext();
   await context.overridePermissions(ORIGIN, ['geolocation']);
@@ -73,7 +73,6 @@ async function openPage(browser, mode, scenario) {
     }
     if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'mock') return js(mocks.config);
     if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'empty') return js(mocks.configEmpty);
-    if (u.origin === ORIGIN && u.pathname.endsWith('/vendor/firebase.js') && mode.firebase === 'mock') return js(mocks.firebase);
     if (u.origin !== ORIGIN) return req.abort();
     return req.continue();
   });
@@ -89,7 +88,7 @@ async function layout(page) {
     const vw = window.innerWidth;
     const visibleInputs = [...document.querySelectorAll('input')].filter((i) => i.offsetParent !== null);
     const small = visibleInputs.filter((i) => parseFloat(getComputedStyle(i).fontSize) < 16).map((i) => i.id);
-    const clipped = [...document.querySelectorAll('.check .name, .check .msg, .btn, .score, .results strong, .results span, .fab, .last-save')]
+    const clipped = [...document.querySelectorAll('.check .name, .check .msg, .btn, .score, .results strong, .results span, .fab')]
       .filter((el) => el.offsetParent !== null && el.scrollWidth > el.clientWidth + 1)
       .map((el) => `${el.className}:${el.textContent.trim().slice(0, 16)}`);
     return { overflowX: document.documentElement.scrollWidth > vw + 1, small, clipped };
@@ -122,27 +121,17 @@ try {
   // A. 설정값이 하나도 없는 처음 상태 (빈 설정을 끼움)
   {
     const s = 'A 설정 전';
-    const { context, page, errors, requests } = await openPage(browser, { kakao: 'block', firebase: 'real', config: 'empty' }, s);
+    const { context, page, errors, requests } = await openPage(browser, { kakao: 'block', config: 'empty' }, s);
     await page.goto(BASE, { waitUntil: 'load' });
     expect(s, '지도 점검이 실패로, 이유와 함께 표시', await waitCheck(page, 'map', 'fail'));
-    expect(s, '로그인 점검이 실패로, 이유와 함께 표시', await waitCheck(page, 'login', 'fail'));
     expect(s, '지도 자리에 안내 문구', await page.$eval('#mapMsg', (el) => !el.hidden && el.textContent.includes('지도 준비 전')));
     expect(s, '검색 입력 잠김', await page.$eval('#q', (el) => el.disabled));
     const appVersion = (await readFile(join(ROOT, 'index.html'), 'utf8')).match(/name="app-version" content="([^"]+)"/)[1];
     expect(s, '버전 표시', (await page.$eval('#ver', (el) => el.textContent)) === appVersion, appVersion);
     const versioned = requests.filter((r) => /\/js\/(config|lib\/)/.test(r));
-    expect(s, '모듈 파일이 버전 꼬리표(?v=)로 요청됨(캐시 방지)', versioned.length >= 4 && versioned.every((r) => r.includes('?v=')), versioned.join(' '));
-    // 진짜 Firebase 묶음이 크롬에서 실행되는지 (네트워크 없이 초기화까지)
-    const sdk = await page.evaluate(async () => {
-      try {
-        const m = await import('./vendor/firebase.js');
-        const app = m.initializeApp({ apiKey: 'x', projectId: 'demo-test', appId: '1:1:web:1' }, 'probe');
-        m.getAuth(app);
-        m.getFirestore(app);
-        return { ok: true, names: Object.keys(m).sort().join(',') };
-      } catch (e) { return { ok: false, err: String(e) }; }
-    });
-    expect(s, '진짜 Firebase 묶음이 열리고 초기화됨', sdk.ok, sdk.names || sdk.err);
+    expect(s, '쓰이는 모듈이 모두 버전 꼬리표(?v=)로 요청됨(캐시 방지)', versioned.length >= 1 && versioned.every((r) => r.includes('?v=')), versioned.join(' '));
+    expect(s, 'firebase 요청 없음', !requests.some((r) => /firebase/i.test(r)));
+    expect(s, 'vendor/firebase.js 파일 없음', !existsSync(join(ROOT, 'vendor/firebase.js')));
     await layoutExpect(page, s);
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await shot(page, 'a-unconfigured');
@@ -152,7 +141,7 @@ try {
   // B. 모든 연결이 되는 경우 (가짜 지도·가짜 저장소)
   {
     const s = 'B 연결됨';
-    const { context, page, errors } = await openPage(browser, { kakao: 'mock', firebase: 'mock', config: 'mock' }, s);
+    const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock' }, s);
     await page.goto(BASE, { waitUntil: 'load' });
     expect(s, '지도 통과', await waitCheck(page, 'map', 'ok'));
     await page.type('#q', '테스트 장소');
@@ -165,39 +154,7 @@ try {
     await page.click('#locate');
     expect(s, '내 위치 통과', await waitCheck(page, 'gps', 'ok'));
     expect(s, '내 위치 점 표시', !!(await page.$('.me-dot')));
-    await page.type('#email', 'me@example.com');
-    await page.type('#password', 'test1234');
-    await page.click('#loginBtn');
-    expect(s, '로그인 통과', await waitCheck(page, 'login', 'ok'));
-    expect(s, '로그인 후 테스트 저장 버튼이 스크롤 없이 보임', await inView(page, '#saveBtn'));
-    expect(s, '상단에 로그인 이메일', (await page.$eval('#who', (el) => el.textContent)) === 'me@example.com');
-    await page.click('#saveBtn');
-    expect(s, "저장 직후 '진행 중'(새로고침 안내)", await waitCheck(page, 'persist', 'half'));
-    // 재발 방지(2026-11-05): 결과 안내가 화면 밖 점검 목록에만 떠서 눌러도 반응 없어 보이던 문제
-    expect(s, '저장 버튼 근처에 새로고침 안내가 보임', await inView(page, '#saveMsg')
-      && (await page.$eval('#saveMsg', (el) => el.textContent)).includes('새로고침'));
-    expect(s, '저장 시각·기기 표시', /마지막 저장 · 오늘 .* · iPhone$/.test(await page.$eval('#lastSave', (el) => el.textContent)));
-    await shot(page, 'b2-saved');
-    await page.reload({ waitUntil: 'load' });
-    expect(s, '새로고침 후 로그인 유지', await waitCheck(page, 'login', 'ok'));
-    expect(s, '새로고침 후 저장값 유지 → 통과', await waitCheck(page, 'persist', 'ok'));
-    expect(s, '같은 기기에서는 다른 기기 점검이 대기', (await checkState(page, 'sync')) === 'wait');
-    // 다른 기기(PC)에서 저장한 상황을 흉내 냄
-    await page.evaluate(() => {
-      const k = 'mock.fs.users/test-uid/meta/ping';
-      const d = JSON.parse(localStorage.getItem(k));
-      d.device = 'Windows PC';
-      localStorage.setItem(k, JSON.stringify(d));
-    });
-    await page.reload({ waitUntil: 'load' });
-    expect(s, '다른 기기 저장값이 보이면 통과', await waitCheck(page, 'sync', 'ok'));
-    await page.click('#locate');
-    await page.type('#q', '테스트 장소');
-    await page.keyboard.press('Enter');
-    await waitCheck(page, 'search', 'ok');
-    await page.click('#results button');
-    await waitCheck(page, 'gps', 'ok');
-    expect(s, '점수 6/6', (await page.$eval('#score', (el) => el.textContent)) === '6개 모두 통과');
+    expect(s, '점수 3/3', (await page.$eval('#score', (el) => el.textContent)) === '3개 모두 통과');
     await layoutExpect(page, s);
     await shot(page, 'b3-all-pass');
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
@@ -206,9 +163,6 @@ try {
     await page.click('#sheetToggle');
     expect(s, '점검 접으면 지도가 커짐', await page.$eval('#sheetBody', (el) => el.offsetParent === null));
     await shot(page, 'b5-collapsed');
-    await page.click('#sheetToggle');
-    await page.click('#logoutBtn');
-    expect(s, '로그아웃하면 로그인 칸이 다시 보임', await page.waitForSelector('#loginForm:not([hidden])', { timeout: 3000 }).then(() => true, () => false));
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
   }
@@ -216,7 +170,7 @@ try {
   // C. 카카오가 도메인 미등록으로 거절하는 경우 (503)
   {
     const s = 'C 지도 거절';
-    const { context, page, errors } = await openPage(browser, { kakao: '503', firebase: 'mock', config: 'mock' }, s);
+    const { context, page, errors } = await openPage(browser, { kakao: '503', config: 'mock' }, s);
     await page.goto(BASE, { waitUntil: 'load' });
     expect(s, '지도 실패', await waitCheck(page, 'map', 'fail'));
     const msg = await page.$eval('[data-check="map"] .msg', (el) => el.textContent);
@@ -225,25 +179,6 @@ try {
     expect(s, '지도가 없어도 위치 점검은 독립적으로 작동', await waitCheck(page, 'gps', 'ok'));
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await shot(page, 'c-map-rejected');
-    await context.close();
-  }
-
-  // D. 비밀번호가 틀린 경우
-  {
-    const s = 'D 로그인 실패';
-    const { context, page, errors } = await openPage(browser, { kakao: 'mock', firebase: 'mock', config: 'mock' }, s);
-    await page.goto(BASE, { waitUntil: 'load' });
-    await waitCheck(page, 'map', 'ok');
-    expect(s, '로그인 버튼이 스크롤 없이 보임', await inView(page, '#loginBtn'));
-    await page.type('#email', 'me@example.com');
-    await page.type('#password', 'wrong');
-    await page.click('#loginBtn');
-    expect(s, '로그인 실패와 이유 표시', await waitCheck(page, 'login', 'fail'));
-    expect(s, '로그인 버튼 근처에 실패 이유가 보임', await inView(page, '#loginMsg')
-      && (await page.$eval('#loginMsg', (el) => el.textContent)).includes('비밀번호'));
-    expect(s, '로그인 버튼이 다시 눌림', await page.$eval('#loginBtn', (el) => !el.disabled && el.textContent === '로그인하기'));
-    expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
-    await shot(page, 'd-login-failed');
     await context.close();
   }
 } finally {

@@ -15,8 +15,7 @@
     "./js/config.js": "./js/config.js?v=0.1.1-1105b",
     "./js/lib/device.js": "./js/lib/device.js?v=0.1.1-1105b",
     "./js/lib/format.js": "./js/lib/format.js?v=0.1.1-1105b",
-    "./js/lib/messages.js": "./js/lib/messages.js?v=0.1.1-1105b",
-    "./vendor/firebase.js": "./vendor/firebase.js?v=fb12.19.0"
+    "./js/lib/messages.js": "./js/lib/messages.js?v=0.1.1-1105b"
   }
 }
 </script>
@@ -31,7 +30,6 @@
       </svg>
       <span>약국 임장노트</span>
     </div>
-    <div class="who" id="who">로그인 전</div>
   </header>
 
   <main class="stage">
@@ -54,43 +52,19 @@
       <span class="grabber" aria-hidden="true"></span>
       <span class="sheet-row">
         <span class="sheet-title">연결 점검</span>
-        <span class="score" id="score" data-done="false">6개 중 0개 통과</span>
+        <span class="score" id="score" data-done="false">3개 중 0개 통과</span>
       </span>
     </button>
     <div class="sheet-body" id="sheetBody">
-      <p class="lead">6개가 모두 통과하면 연결 확인이 끝나요.</p>
-
-      <form id="loginForm" class="login" autocomplete="on">
-        <div class="field">
-          <label for="email">이메일</label>
-          <input id="email" name="email" type="email" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="password">비밀번호</label>
-          <input id="password" name="password" type="password" autocomplete="current-password">
-        </div>
-        <p class="form-msg" id="loginMsg" role="alert" hidden></p>
-        <button class="btn primary" id="loginBtn" type="submit">로그인하기</button>
-      </form>
-
-      <div id="account" class="account" hidden>
-        <p class="last-save" id="lastSave"></p>
-        <p class="form-msg" id="saveMsg" role="status" hidden></p>
-        <button class="btn primary" id="saveBtn" type="button">테스트 저장하기</button>
-      </div>
-
+      <p class="lead">3개가 모두 통과하면 연결 확인이 끝나요.</p>
       <ol class="checks">
         <li class="check" data-check="map" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">지도</div><p class="msg">지도를 불러오는 중이에요.</p></div><span class="state sr-only">대기</span></li>
         <li class="check" data-check="search" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">장소 검색</div><p class="msg">검색창에 아무 장소나 검색해 보세요.</p></div><span class="state sr-only">대기</span></li>
         <li class="check" data-check="gps" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">내 위치</div><p class="msg">'내 위치' 버튼을 눌러보세요.</p></div><span class="state sr-only">대기</span></li>
-        <li class="check" data-check="login" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">로그인</div><p class="msg">이메일과 비밀번호로 로그인해 주세요.</p></div><span class="state sr-only">대기</span></li>
-        <li class="check" data-check="persist" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">저장 후 유지</div><p class="msg">로그인 후 '테스트 저장하기'를 누르고 새로고침해 보세요.</p></div><span class="state sr-only">대기</span></li>
-        <li class="check" data-check="sync" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">다른 기기에서 보기</div><p class="msg">PC에서 같은 주소로 로그인해 보세요.</p></div><span class="state sr-only">대기</span></li>
       </ol>
 
       <div class="foot">
         <span>버전 <span id="ver"></span> · 화면이 그대로면 새로고침해 주세요</span>
-        <button class="text-btn" id="logoutBtn" type="button" hidden>로그아웃</button>
       </div>
     </div>
   </section>

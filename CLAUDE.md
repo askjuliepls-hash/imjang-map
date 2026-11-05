@@ -9,22 +9,22 @@
 - 앱 주소: https://askjuliepls-hash.github.io/imjang-map/ — GitHub Pages가 main 브랜치 루트를 그대로 배포합니다. push 후 1~2분 걸립니다.
 - 지도: 카카오맵 JavaScript SDK (`dapi.kakao.com/v2/maps/sdk.js`, `services` 라이브러리로 장소 검색)
 - 데이터: **각자의 폰 브라우저에만 저장**(로그인 없음)하고, 백업은 파일 내보내기·가져오기로 합니다. Firebase는 2026-11-05에 보류했습니다(아래 '지금 어디까지').
-- 빌드 도구는 없습니다. 순수 HTML·CSS·JS(ES 모듈)입니다. `vendor/firebase.js`(Firebase SDK 묶음)는 보류 결정으로 제거할 예정입니다.
+- 빌드 도구는 없습니다. 순수 HTML·CSS·JS(ES 모듈)입니다.
 
 ## 지금 어디까지 (2026-11-05)
 
 - MVP 0단계(준비) 끝. GitHub 저장소·Pages, 카카오 앱 '약국 임장노트'(ID 1638441: JavaScript SDK 도메인 등록, 카카오맵 ON)까지 완료했고, 카카오 JavaScript 키는 `js/config.js`에 들어 있습니다. 배포 버전 0.1.1-1105b.
 - **결정 변경:** Firebase(클라우드 저장·로그인)를 보류하고 '폰에만 저장 + 백업'으로 갑니다. 조건: ① 홈 화면에 추가해서 쓰기(아이폰 사파리는 오래 안 쓴 사이트 데이터를 지울 수 있음) ② 백업 파일 내보내기·가져오기 + 오래 백업 안 하면 알림 ③ 항상 같은 곳(홈 화면 아이콘)에서 열기(카톡 안 브라우저 등은 저장 공간이 따로라 빈 화면처럼 보임).
-- **다음 작업(VS Code에서):** 1단계 연결 점검 화면을 새 결정에 맞게 고치기. Firebase 관련 코드(`vendor/firebase.js`, 로그인 칸, 로그인·서버 저장·다른 기기 점검, `scripts/build-vendor.mjs`)를 빼고, 점검을 '지도 / 장소 검색 / 내 위치 / 이 기기에 저장 후 새로고침해도 유지 / 백업 파일 내보내기 / 백업 파일 가져오기 / 홈 화면 앱으로 열림'으로 바꿉니다. 자동 테스트·대행 점검도 함께 고치고, 사용자 폰 확인을 받은 뒤 2단계(매물 저장)로 갑니다.
+- **진행 중(`step1` 브랜치):** 1단계 연결 점검 화면을 새 결정에 맞게 고치는 중입니다. 전체 계획은 `docs/step1-plan.md`, 사용자 답은 그 파일 맨 위에 있습니다. Firebase 코드는 제거했습니다(커밋 7765b04까지 있음). 점검은 '홈 화면 앱으로 열림 / 지도 / 장소 검색 / 내 위치 / 이 기기에 저장 후 유지 / 백업 파일 내보내기 / 백업 파일 가져오기' 7개이고, 폰 확인 2번을 거쳐 사용자 승인을 받은 뒤 2단계(매물 저장)로 갑니다.
 - 최신 진행 상황은 `docs/dev-notes.md`의 '현재 상태와 다음 할 일'이 기준입니다. 일을 마치면 그곳을 갱신합니다.
 
 ## PC에서 처음 시작할 때 (VS Code)
 
-지금까지는 클라우드의 리눅스 작업 공간에서 만들었습니다. 리눅스에서는 자동 테스트 20개·대행 점검 43개가 통과했지만(2026-11-05 마지막 확인), **Windows에서는 아직 한 번도 돌려보지 않았습니다.** 다음 작업 전에 이것부터 확인합니다.
+Windows 기준선은 2026-11-05에 통과했습니다(이후 개수는 작업에 따라 바뀜). 다른 PC에서 새로 받으면 이것부터 확인합니다.
 
 1. 준비물: Git, Node.js 22 이상(테스트 명령의 `*` 패턴 때문), 크롬. 없으면 무엇을 왜 설치하는지 설명하고, 설치는 사용자가 합니다.
 2. 기준선: `npm install` → `npm test` → `npm run preview -- tests\e2e\shots`. 실패하면 코드를 고치기 전에 Windows 차이(경로 구분자, 줄바꿈, 크롬 경로)부터 의심하고, 원인과 막은 장치를 재발 방지 기록에 남깁니다.
-3. 커밋 작성자 이메일: 저장소가 공개라서 커밋에 적힌 이메일도 누구나 볼 수 있습니다. 첫 커밋 전에 `git config user.email`을 확인하고, 개인 이메일이면 이 저장소만 GitHub 비공개 주소(`…@users.noreply.github.com`, GitHub 설정 > Emails)로 바꿀지 사용자에게 묻습니다. 지금까지의 커밋은 `Claude <noreply@anthropic.com>`로 했습니다.
+3. 커밋 작성자 이메일: 저장소가 공개라서 커밋에 적힌 이메일도 누구나 볼 수 있습니다. 사용자 결정으로 이 저장소는 GitHub 비공개 주소(`286958715+askjuliepls-hash@users.noreply.github.com`)를 씁니다. 새로 받았으면 `git config user.email`로 저장소 설정을 다시 합니다.
 4. 첫 push 때 GitHub 로그인 창이 뜨면 사용자가 직접 로그인합니다. 비밀번호·토큰은 Claude가 받거나 입력하지 않습니다.
 
 ## 사용자와 일하는 방식 (사용자가 요청한 원칙)
@@ -46,14 +46,14 @@
 | --- | --- |
 | `index.html` | 화면. 버전 꼬리표(`?v=`)와 import map이 여기 있습니다 |
 | `css/app.css` | 디자인 토큰(색·글꼴)과 화면 스타일 |
-| `js/app.js` | 앱 동작 (지도, 검색, 내 위치, 로그인, 저장) |
+| `js/app.js` | 앱 동작 (지도, 검색, 내 위치, 연결 점검) |
 | `js/lib/` | 화면과 무관한 순수 로직. 자동 테스트 대상 |
-| `js/config.js` | 카카오 JavaScript 키 (firebaseConfig는 보류로 비어 있음, 제거 예정) |
-| `vendor/firebase.js` | Firebase SDK 묶음 — 보류 결정으로 제거 예정 |
+| `js/config.js` | 카카오 JavaScript 키 |
 | `fonts/pretendard/` | Pretendard 글꼴(SIL OFL 1.1), 쓰는 글자 조각만 내려받는 방식 |
 | `tests/unit/` | 순수 로직 자동 테스트 (`node --test`) |
 | `tests/e2e/` | 대행 점검: 가짜 지도·가짜 저장소로 폰 크기 화면을 조작하고 캡처 |
 | `docs/dev-notes.md` | 결정 기록, 설계, 로드맵, 준비 가이드, 검증 체크리스트, 백로그 |
+| `docs/step1-plan.md` | 1단계 연결 점검 다시 만들기 전체 계획과 근거 |
 
 ## 명령 (Windows PowerShell 기준)
 
@@ -63,13 +63,11 @@ npm test
 $env:CHROME_PATH = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 npm run preview -- tests\e2e\shots
 npm run release -- 0.1.1-1106a
-npm run build:vendor
 ```
 
-- `npm test`: 순수 로직 테스트 20개.
-- `npm run preview`: 정적 서버를 띄우고 크롬으로 아이폰 사파리 크기(390×664) 화면을 조작해 43개 항목을 점검하고, `tests\e2e\shots`에 캡처를 남깁니다. 카카오·Firebase는 `tests/e2e/mocks`의 가짜로 바꿔 끼웁니다. 통과해도 캡처는 직접 열어 대조합니다.
+- `npm test`: 순수 로직 자동 테스트.
+- `npm run preview`: 정적 서버를 띄우고 크롬으로 아이폰 사파리 크기(390×664) 화면을 조작해 점검하고, `tests\e2e\shots`에 캡처를 남깁니다. 카카오는 `tests/e2e/mocks`의 가짜로 바꿔 끼웁니다. 통과해도 캡처는 직접 열어 대조합니다.
 - `npm run release -- <새 버전>`: 화면·코드를 바꿔 배포하기 전에 버전 꼬리표를 올립니다(폰 브라우저 캐시 방지). 폰에서 화면 아래 '버전'이 바뀌었는지로 새 버전임을 확인시킵니다.
-- `npm run build:vendor`: Firebase SDK 묶음을 만드는 명령입니다. 보류 결정으로 다음 작업에서 함께 지웁니다.
 
 ## 지켜야 할 것
 

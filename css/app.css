@@ -75,7 +75,7 @@ body {
   font: 500 15px/1.5 var(--font);
   letter-spacing: -0.01em;
   word-break: keep-all; /* 한국어는 낱말 중간이 아니라 띄어쓰기에서 줄을 바꿉니다 */
-  overflow-wrap: anywhere; /* 긴 이메일·주소는 그래도 넘치지 않게 */
+  overflow-wrap: anywhere; /* 긴 주소는 그래도 넘치지 않게 */
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
@@ -112,14 +112,6 @@ p { margin: 0; }
 }
 .brand { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
 .brand .mark { color: var(--accent); flex: none; }
-.who {
-  min-width: 0;
-  font-size: 14px;
-  color: var(--ink-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* 지도 영역 */
 .stage { position: relative; min-height: 0; overflow: hidden; background: var(--bg); }
@@ -287,24 +279,6 @@ p { margin: 0; }
 .lead { font-size: 15px; color: var(--ink-2); }
 
 /* 입력과 버튼 */
-.login, .account { display: grid; gap: 12px; }
-.field { display: grid; gap: 6px; }
-.field label { font-size: 14px; color: var(--ink-2); }
-.field input {
-  width: 100%;
-  height: 52px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: var(--r-md);
-  background: var(--fill);
-  color: var(--ink);
-  font-size: 17px;
-  outline: none;
-  box-shadow: inset 0 0 0 2px transparent;
-  transition: box-shadow .15s ease;
-}
-.field input:focus { box-shadow: inset 0 0 0 2px var(--accent); }
-.field input:disabled { opacity: .5; }
 .btn {
   width: 100%;
   height: 56px;
@@ -336,7 +310,6 @@ p { margin: 0; }
 }
 .form-msg[data-tone="info"] { background: var(--fill); color: var(--ink-2); }
 .form-msg[data-tone="ok"] { background: var(--ok-soft); color: var(--ok-text); }
-.last-save { font-size: 14px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 
 /* 연결 점검 목록 */
 .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
