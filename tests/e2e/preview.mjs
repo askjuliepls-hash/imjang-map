@@ -1028,6 +1028,21 @@ try {
       await page.click('#modalYes');
       await wait(60);
       expect(s, '되돌리면 가져오기 전으로', (await stored(page)).length === 1);
+      expect(s, '되돌리면 백업 안 한 변경도 가져오기 전 그대로', (await text(page, '#backupLast')).includes('변경 1건'));
+      expect(s, '되돌리기는 한 번만', !(await visible(page, '#undoImport')));
+      // 재발 방지(2026-11-05, 폰 확인으로 발견): 백업 직후 가져오고 되돌리면 '백업 전 1건'으로 뜨던 문제
+      await page.click('#exportBtn');
+      await wait(120);
+      const justBacked = (await lastShared(page)).text;
+      const alert = () => page.$eval('#tabbar [data-tab="settings"]', (el) => el.dataset.alert);
+      await pickFile(page, justBacked);
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '백업한 파일을 가져온 뒤 백업 전이 아님', !(await text(page, '#backupWhen')).startsWith('백업 전') && (await alert()) === 'false');
+      await page.click('#undoImport');
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '백업 직후 가져오고 되돌려도 백업 전이 아니고 백업 날짜가 보임', /^\d{4}\.\d{2}\.\d{2}$/.test(await text(page, '#backupWhen')) && (await alert()) === 'false' && !(await text(page, '#backupLast')).includes('변경'));
       await page.click('#backupClose');
       await goTab(page, 'list');
       await page.reload({ waitUntil: 'load' });
@@ -1170,6 +1185,33 @@ try {
       await wait(60);
       await openBackup(page);
       expect(s, '방지가 안 되면 숨기지 않고 알림', (await text(page, '#persistLine')).includes('허용하지 않았어요') && await visible(page, '#persistLine'));
+      await context.close();
+    }
+    {
+      // 폰 시험 다시 하기: 백업 기록만 한 번 지웁니다. 다음 배포에서 코드와 함께 뺍니다.
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', realNudge: true, init: [asApp, fakeShare] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await page.evaluate(() => {
+        const put = (k, data) => localStorage.setItem(`imjang-map:${k}`, JSON.stringify({ schemaVersion: 1, data }));
+        localStorage.removeItem('imjang-map:retest-1105h');
+        put('listings', { items: [{ id: 'a', name: '남아 있어야 할 약국', lat: null, lng: null, categoryId: 'c', createdAt: '2026-01-01T00:00:00.000Z' }] });
+        put('categories', { items: [{ id: 'c', name: '후보', color: '#F96949' }] });
+        put('backup-meta', { lastBackupAt: '2026-11-05T01:00:00.000Z', dirtySince: null, pending: 0, introSeen: true });
+        put('before-import', { listings: [], categories: [] });
+      });
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      await goTab(page, 'settings');
+      expect(s, '시험 다시 하기: 백업 전 상태로 돌아감', (await text(page, '#backupWhen')) === '백업 전 1건');
+      expect(s, '시험 다시 하기: 매물과 분류는 그대로', (await stored(page)).length === 1 && (await page.evaluate(() => localStorage.getItem('imjang-map:categories'))).includes('후보'));
+      await page.click('#backupOpen');
+      expect(s, '시험 다시 하기: 백업 기록과 되돌리기가 없어짐', (await text(page, '#backupLast')).includes('아직 백업한 적이 없어요') && !(await visible(page, '#undoImport')));
+      await page.click('#exportBtn');
+      await wait(120);
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      expect(s, '시험 다시 하기: 한 번만 지우고 그 뒤 백업 날짜는 남음', /^\d{4}\.\d{2}\.\d{2}$/.test(await text(page, '#backupWhen')));
+      expect(s, '스크립트 오류 없음(시험 다시 하기)', errors.length === 0, errors.join(' | '));
       await context.close();
     }
     {
