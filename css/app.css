@@ -308,7 +308,7 @@ p { margin: 0; }
 }
 .form-msg[data-tone="info"] { background: var(--fill); color: var(--ink-2); }
 .form-msg[data-tone="ok"] { background: var(--ok-soft); color: var(--ok-text); }
-.top-msg { position: absolute; top: 12px; left: 16px; right: 16px; z-index: 40; box-shadow: var(--sheet-shadow); }
+.top-msg { position: absolute; top: 76px; left: 16px; right: 16px; z-index: 40; box-shadow: var(--float-shadow); }
 
 /* 작은 버튼은 주황으로 채웁니다. 흰 글씨 대비가 약해서 글자를 굵고 짧게 씁니다. */
 .fill-btn {
@@ -324,10 +324,11 @@ p { margin: 0; }
 }
 .fill-btn:active { background: #e5573a; }
 .fill-btn:disabled { opacity: .45; }
+/* 왼쪽 아래는 카카오 로고 자리라 비워 둡니다. 내 위치 버튼 위에 쌓습니다. */
 .add-btn {
   position: absolute;
-  left: 12px;
-  bottom: 12px;
+  right: 12px;
+  bottom: 68px;
   z-index: 5;
   box-shadow: var(--float-shadow);
 }

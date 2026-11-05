@@ -167,6 +167,16 @@ try {
     expect(s, '점검 화면이 없음', !(await page.$('[data-check]')) && !(await page.$('#next')));
     expect(s, '빈 목록 안내가 보임', await visible(page, '#empty'));
     expect(s, '매물 추가 버튼이 스크롤 없이 보임', await inView(page, '#addBtn'));
+    // 재발 방지(2026-11-05): 매물 추가 버튼이 왼쪽 아래 카카오 로고 자리를 가리던 문제
+    const logoClear = await page.evaluate(() => {
+      const stage = document.querySelector('.stage').getBoundingClientRect();
+      const logo = { left: stage.left, right: stage.left + 140, top: stage.bottom - 40, bottom: stage.bottom };
+      return ['#addBtn', '#locate'].every((sel) => {
+        const r = document.querySelector(sel).getBoundingClientRect();
+        return r.right <= logo.left || r.left >= logo.right || r.bottom <= logo.top || r.top >= logo.bottom;
+      });
+    });
+    expect(s, '떠 있는 버튼이 카카오 로고 자리를 가리지 않음', logoClear);
     const addStyle = await page.$eval('#addBtn', (el) => getComputedStyle(el).backgroundColor);
     expect(s, '작은 버튼은 주황으로 채움', addStyle === 'rgb(249, 105, 73)', addStyle);
     const appVersion = (await readFile(join(ROOT, 'index.html'), 'utf8')).match(/name="app-version" content="([^"]+)"/)[1];

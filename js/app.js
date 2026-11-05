@@ -506,6 +506,7 @@ let pickOverlay = null;
 function onLocMap() {
   if (!map) return;
   picking = true;
+  $('toast').hidden = true;
   pickPos = draftLocation ? { lat: draftLocation.lat, lng: draftLocation.lng } : null;
   $('formScreen').hidden = true;
   $('pickBar').hidden = false;
