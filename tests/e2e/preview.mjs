@@ -427,7 +427,7 @@ try {
     await appReady(page);
     const heads = () => page.$$eval('#list .list-head span:first-child', (a) => a.map((x) => x.textContent));
     const dateHeads = await heads();
-    expect(s, '임장 날짜별: 최근 날짜부터, 임장 전은 맨 끝', dateHeads.length === 3 && dateHeads[0].includes('11월 3일') && dateHeads[1].startsWith('2025년') && dateHeads[2] === '임장 전', dateHeads.join(' / '));
+    expect(s, '임장 날짜별: 최근 날짜부터, 임장 전은 맨 끝', dateHeads.length === 3 && dateHeads[0].startsWith('2026년 11월 3일') && dateHeads[1].startsWith('2025년') && dateHeads[2] === '임장 전', dateHeads.join(' / '));
     await goTab(page, 'list');
     await layoutExpect(page, s);
     const order = await page.evaluate(() => [...document.querySelectorAll('#list .fact')].slice(0, 4).map((f) => f.firstChild.textContent));
@@ -438,10 +438,36 @@ try {
     expect(s, '이름 줄 오른쪽 끝에 지역이 보임', (await page.$eval('#list .side', (el) => el.textContent)).length > 0);
     await shot(page, 'k-by-date');
     await goTab(page, 'list');
+    // 재발 방지(2026-11-05): 올해 날짜에 연도가 빠져 어느 해인지 알 수 없던 문제
+    expect(s, '임장 날짜에 늘 연도가 보임', (await heads()).filter((x) => x !== '임장 전').every((x) => /^\d{4}년/.test(x)), (await heads()).join(' / '));
+    expect(s, '날짜 도구 세 가지가 보임', await visible(page, '#orderNew') && await visible(page, '#orderOld') && await visible(page, '#datePick'));
+    await page.click('#orderOld');
+    const oldHeads = await heads();
+    expect(s, '오래된순: 오래된 날짜부터, 임장 전은 맨 끝', oldHeads[0].startsWith('2025년') && oldHeads[2] === '임장 전', oldHeads.join(' / '));
+    await page.click('#datePick');
+    expect(s, '날짜 선택을 누르면 달력이 뜸', await visible(page, '#calModal') && await inView(page, '#calClose') && (await text(page, '#calTitle')) === '2026년 11월');
+    const dayState = await page.evaluate(() => {
+      const on = document.querySelector('[data-date="2026-11-03"]');
+      const off = document.querySelector('[data-date="2026-11-04"]');
+      return { on: !on.disabled, off: off.disabled };
+    });
+    expect(s, '임장한 날만 누를 수 있음', dayState.on && dayState.off, JSON.stringify(dayState));
+    await shot(page, 'k-calendar');
+    await page.click('#calPrev');
+    expect(s, '이전 달로 넘어감', (await text(page, '#calTitle')) === '2026년 10월');
+    await page.click('#calNext');
+    await page.click('[data-date="2026-11-03"]');
+    const pickedHeads = await heads();
+    expect(s, '날짜를 고르면 그날 매물만 보임', !(await visible(page, '#calModal')) && pickedHeads.length === 1 && pickedHeads[0].startsWith('2026년 11월 3일') && (await page.$$('#list .listing')).length === 2, pickedHeads.join(' / '));
+    expect(s, '고른 날짜가 버튼에 보임', (await text(page, '#datePick')) === '2026.11.03');
+    await shot(page, 'k-date-picked');
+    await page.click('#orderNew');
+    expect(s, '최근순을 누르면 전체로 돌아옴', (await heads()).length === 3 && (await text(page, '#datePick')) === '날짜 선택');
     await page.click('#viewTabs [data-view="region"]');
+    expect(s, '다른 보기에서는 날짜 도구가 안 보임', !(await visible(page, '#dateTools')));
     const regionHeads = await heads();
     expect(s, '지역별: 가나다순, 주소로 지역을 읽고, 모르면 맨 끝', regionHeads.join() === '경기 성남시 수정구,경기 성남시 중원구,서울 중구,지역 없음', regionHeads.join(' / '));
-    expect(s, '지역별 줄 오른쪽 끝에는 임장 날짜가 보임', (await page.$$eval('#list .side', (a) => a.map((x) => x.textContent))).some((x) => x.includes('11월 3일')));
+    expect(s, '지역별 줄 오른쪽 끝에는 임장 날짜가 보임', (await page.$$eval('#list .side', (a) => a.map((x) => x.textContent))).includes('2026.11.03'));
     await shot(page, 'k-by-region');
     await page.reload({ waitUntil: 'load' });
     await appReady(page);

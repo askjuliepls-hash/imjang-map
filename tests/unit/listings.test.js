@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint, detailGroups,
-  formatVisitDate, groupByVisitDate, groupByRegion, regionOf, listingFacts, sideLabel,
+  formatVisitDate, groupByVisitDate, groupByRegion, regionOf, listingFacts, sideLabel, shortVisitDate, monthCells, visitDates,
   regionFromAddress, createListingStore,
 } from '../../js/lib/listings.js';
 import { createStore, KEY_PREFIX } from '../../js/lib/store.js';
@@ -138,8 +138,6 @@ test('상세 화면에 주소가 보인다', () => {
   assert.deepEqual(groups[0].rows[0], { label: '주소', value: '서울 중구 가짜대로 1', long: false });
 });
 
-const NOW = new Date(2026, 10, 5);
-
 test('임장일이 양식 맨 위이고 예상 순수익은 수익 묶음에 있다', () => {
   assert.equal(FIELD_GROUPS[0].fields[0].key, 'visitDate');
   const profit = FIELD_GROUPS.find((g) => g.title === '수익').fields.map((f) => f.key);
@@ -153,18 +151,49 @@ test('상세에 예상 순수익이 금액으로 보인다', () => {
 });
 
 test('임장 날짜 표시', () => {
-  assert.equal(formatVisitDate('2026-11-05', NOW), '11월 5일 (목)');
-  assert.equal(formatVisitDate('2025-01-02', NOW), '2025년 1월 2일 (목)');
-  assert.equal(formatVisitDate('', NOW), '');
+  assert.equal(formatVisitDate('2026-11-05'), '2026년 11월 5일 (목)');
+  assert.equal(formatVisitDate('2025-01-02'), '2025년 1월 2일 (목)');
+  assert.equal(formatVisitDate(''), '');
+  assert.equal(shortVisitDate('2026-11-05'), '2026.11.05');
+  assert.equal(shortVisitDate(''), '');
 });
 
 const L = (id, visitDate, region, createdAt = '2026-11-01T00:00:00Z', address = '') => ({ id, visitDate, region, createdAt, address });
 
-test('임장 날짜별: 최근 날짜부터, 임장일 없는 매물은 맨 끝', () => {
-  const g = groupByVisitDate([L('old', '2026-10-01', ''), L('none', '', ''), L('new', '2026-11-05', ''), L('new2', '2026-11-05', '', '2026-11-03T00:00:00Z')], NOW);
-  assert.deepEqual(g.map((x) => x.title), ['11월 5일 (목)', '10월 1일 (목)', '임장 전']);
+const DATED = [L('old', '2026-10-01', ''), L('none', '', ''), L('new', '2026-11-05', ''), L('new2', '2026-11-05', '', '2026-11-03T00:00:00Z')];
+
+test('임장 날짜별 최근순: 최근 날짜부터, 임장일 없는 매물은 맨 끝', () => {
+  const g = groupByVisitDate(DATED);
+  assert.deepEqual(g.map((x) => x.title), ['2026년 11월 5일 (목)', '2026년 10월 1일 (목)', '임장 전']);
   assert.deepEqual(g[0].items.map((x) => x.id), ['new2', 'new']);
   assert.deepEqual(g[2].items.map((x) => x.id), ['none']);
+});
+
+test('임장 날짜별 오래된순: 오래된 날짜부터, 임장일 없는 매물은 그래도 맨 끝', () => {
+  const g = groupByVisitDate(DATED, { order: 'old' });
+  assert.deepEqual(g.map((x) => x.title), ['2026년 10월 1일 (목)', '2026년 11월 5일 (목)', '임장 전']);
+});
+
+test('날짜를 고르면 그날 매물만 나온다', () => {
+  const g = groupByVisitDate(DATED, { date: '2026-11-05' });
+  assert.equal(g.length, 1);
+  assert.deepEqual(g[0].items.map((x) => x.id).sort(), ['new', 'new2']);
+  assert.deepEqual(groupByVisitDate(DATED, { date: '2020-01-01' }), []);
+});
+
+test('달력 칸: 일요일부터 시작하고 7칸씩 끊어진다', () => {
+  const nov = monthCells(2026, 11); // 2026년 11월 1일은 일요일
+  assert.equal(nov[0], '2026-11-01');
+  assert.equal(nov.length % 7, 0);
+  assert.equal(nov.filter(Boolean).length, 30);
+  const feb = monthCells(2026, 2); // 2026년 2월 1일도 일요일, 28일까지
+  assert.equal(feb.filter(Boolean).length, 28);
+  const jan = monthCells(2026, 1); // 2026년 1월 1일은 목요일
+  assert.deepEqual(jan.slice(0, 5), [null, null, null, null, '2026-01-01']);
+});
+
+test('임장한 날짜만 달력에 표시한다', () => {
+  assert.deepEqual([...visitDates(DATED)].sort(), ['2026-10-01', '2026-11-05']);
 });
 
 test('지역별: 가나다순, 같은 지역 안에서는 최근 임장부터, 모르면 맨 끝', () => {
@@ -182,12 +211,12 @@ test('묶음 제목과 겹치는 정보는 목록 줄에서 뺀다', () => {
   const item = L('a', '2026-11-05', '서울 중구');
   item.lat = 37;
   item.lng = 127;
-  assert.equal(summaryLine(item, { view: 'date', now: NOW }), '');
-  assert.equal(summaryLine(item, { view: 'region', now: NOW }), '');
-  assert.equal(summaryLine(item, { view: 'category', now: NOW }), '11월 5일 (목)');
-  assert.equal(sideLabel(item, { view: 'date', now: NOW }), '서울 중구');
-  assert.equal(sideLabel(item, { view: 'region', now: NOW }), '11월 5일 (목)');
-  assert.equal(sideLabel(item, { view: 'category', now: NOW }), '서울 중구');
+  assert.equal(summaryLine(item, { view: 'date' }), '');
+  assert.equal(summaryLine(item, { view: 'region' }), '');
+  assert.equal(summaryLine(item, { view: 'category' }), '2026년 11월 5일 (목)');
+  assert.equal(sideLabel(item, { view: 'date' }), '서울 중구');
+  assert.equal(sideLabel(item, { view: 'region' }), '2026.11.05');
+  assert.equal(sideLabel(item, { view: 'category' }), '서울 중구');
 });
 
 test('평을 ㎡로 바꾸고, 다시 평으로 봐도 같다', () => {

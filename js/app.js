@@ -11,7 +11,7 @@ import { toPyeong, fromPyeong } from './lib/format.js';
 import {
   FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint,
   detailGroups, regionFromAddress, createListingStore, makeListingId, groupByVisitDate, groupByRegion, listingFacts, regionOf,
-  sideLabel,
+  sideLabel, shortVisitDate, monthCells, visitDates,
 } from './lib/listings.js';
 import {
   kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage, saveErrorMessage, loadErrorMessage,
@@ -386,7 +386,7 @@ function colorDot(color) {
   return dot;
 }
 
-function listingRow(item, now) {
+function listingRow(item) {
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'listing';
@@ -395,7 +395,7 @@ function listingRow(item, now) {
   const name = document.createElement('strong');
   name.textContent = item.name;
   head.append(name);
-  const side = sideLabel(item, { view, now });
+  const side = sideLabel(item, { view });
   if (side) {
     const s = document.createElement('span');
     s.className = 'side';
@@ -403,7 +403,7 @@ function listingRow(item, now) {
     head.append(s);
   }
   b.append(head);
-  const line = summaryLine(item, { view, now });
+  const line = summaryLine(item, { view });
   const cat = view === 'category' ? null : categoryOf(item, categories);
   if (line || cat) {
     const sub = document.createElement('span');
@@ -431,11 +431,11 @@ function renderList() {
   for (const tab of $('viewTabs').querySelectorAll('button')) {
     tab.setAttribute('aria-pressed', String(tab.dataset.view === view));
   }
-  const now = new Date();
+  renderDateTools();
   let groups;
   if (view === 'category') groups = groupByCategory(items, categories);
   else if (view === 'region') groups = groupByRegion(items);
-  else groups = groupByVisitDate(items, now);
+  else groups = dateGroups();
   const ul = $('list');
   ul.replaceChildren();
   for (const g of groups) {
@@ -448,8 +448,90 @@ function renderList() {
     count.textContent = `${g.items.length}개`;
     head.append(title, count);
     ul.append(head);
-    for (const item of g.items) ul.append(listingRow(item, now));
+    for (const item of g.items) ul.append(listingRow(item));
   }
+}
+
+// 임장 날짜별 보기의 세 가지: 최근순, 오래된순, 달력에서 고른 날짜
+let dateMode = 'new'; // 'new' | 'old' | 'pick'
+let pickedDate = null;
+
+function dateGroups() {
+  if (dateMode === 'pick') {
+    const g = groupByVisitDate(items, { date: pickedDate });
+    if (g.length > 0) return g;
+    dateMode = 'new'; // 그날 매물을 지웠거나 날짜를 고쳤으면 전체로 돌아갑니다.
+    pickedDate = null;
+    renderDateTools();
+  }
+  return groupByVisitDate(items, { order: dateMode });
+}
+
+function renderDateTools() {
+  $('dateTools').hidden = items.length === 0 || view !== 'date';
+  $('orderNew').setAttribute('aria-pressed', String(dateMode === 'new'));
+  $('orderOld').setAttribute('aria-pressed', String(dateMode === 'old'));
+  $('datePick').setAttribute('aria-pressed', String(dateMode === 'pick'));
+  $('datePick').textContent = dateMode === 'pick' ? shortVisitDate(pickedDate) : '날짜 선택';
+}
+
+function setDateOrder(mode) {
+  dateMode = mode;
+  pickedDate = null;
+  store.write('dateOrder', mode); // 다음에 열 때도 같은 순서로
+  renderList();
+  $('sheet').scrollTop = 0;
+}
+
+let calYear = 0;
+let calMonth = 0; // 1~12
+
+function renderCalendar() {
+  $('calTitle').textContent = `${calYear}년 ${calMonth}월`;
+  const marked = visitDates(items);
+  const grid = $('calGrid');
+  grid.replaceChildren();
+  for (const cell of monthCells(calYear, calMonth)) {
+    if (!cell) {
+      grid.append(document.createElement('span'));
+      continue;
+    }
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cal-day';
+    b.dataset.date = cell;
+    b.textContent = String(Number(cell.slice(8)));
+    const has = marked.has(cell);
+    b.disabled = !has; // 매물이 없는 날은 눌러도 보여 줄 것이 없습니다.
+    b.dataset.has = String(has);
+    b.setAttribute('aria-pressed', String(dateMode === 'pick' && pickedDate === cell));
+    b.addEventListener('click', () => {
+      dateMode = 'pick';
+      pickedDate = cell;
+      $('calModal').hidden = true;
+      renderList();
+      $('sheet').scrollTop = 0;
+    });
+    grid.append(b);
+  }
+  $('calNote').textContent = marked.size > 0 ? '점이 있는 날에 임장한 매물이 있어요.' : '아직 임장일을 적은 매물이 없어요.';
+}
+
+function openCalendar() {
+  // 고른 날짜나 가장 최근 임장일이 있는 달부터 보여 줍니다.
+  const latest = [...visitDates(items)].sort().pop();
+  const base = pickedDate || latest || new Date().toISOString().slice(0, 10);
+  calYear = Number(base.slice(0, 4));
+  calMonth = Number(base.slice(5, 7));
+  renderCalendar();
+  $('calModal').hidden = false;
+}
+
+function moveCalendar(delta) {
+  const d = new Date(calYear, calMonth - 1 + delta, 1);
+  calYear = d.getFullYear();
+  calMonth = d.getMonth() + 1;
+  renderCalendar();
 }
 
 function setView(next) {
@@ -1130,7 +1212,7 @@ function setTab(next) {
 }
 
 // ---------- 새 버전 자동 적용 ----------
-const busy = () => !$('formScreen').hidden || !$('detailScreen').hidden || !$('catScreen').hidden || !$('catModal').hidden || !$('modal').hidden || picking;
+const busy = () => !$('calModal').hidden || !$('formScreen').hidden || !$('detailScreen').hidden || !$('catScreen').hidden || !$('catModal').hidden || !$('modal').hidden || picking;
 
 async function checkForUpdate() {
   if (busy()) return; // 입력하거나 보고 있는 중에는 건드리지 않습니다.
@@ -1236,6 +1318,14 @@ window.addEventListener('resize', () => map?.relayout());
 
 const savedView = store.read('view');
 if (savedView.ok && ['date', 'region', 'category'].includes(savedView.data)) view = savedView.data;
+const savedOrder = store.read('dateOrder');
+if (savedOrder.ok && savedOrder.data === 'old') dateMode = 'old';
+$('orderNew').addEventListener('click', () => setDateOrder('new'));
+$('orderOld').addEventListener('click', () => setDateOrder('old'));
+$('datePick').addEventListener('click', openCalendar);
+$('calClose').addEventListener('click', () => { $('calModal').hidden = true; });
+$('calPrev').addEventListener('click', () => moveCalendar(-1));
+$('calNext').addEventListener('click', () => moveCalendar(1));
 for (const tab of $('viewTabs').querySelectorAll('button')) {
   tab.addEventListener('click', () => setView(tab.dataset.view));
 }

@@ -78,13 +78,32 @@ export function isLocated(item) {
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
-// '2026-11-05' → '11월 5일 (목)'. 올해가 아니면 연도까지 붙입니다.
-export function formatVisitDate(value, now = new Date()) {
+// '2026-11-05' → '2026년 11월 5일 (목)'. 해가 바뀌어도 헷갈리지 않게 연도를 늘 보여 줍니다.
+export function formatVisitDate(value) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? ''));
   if (!m) return '';
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  const day = `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAYS[d.getDay()]})`;
-  return d.getFullYear() === now.getFullYear() ? day : `${d.getFullYear()}년 ${day}`;
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAYS[d.getDay()]})`;
+}
+
+// 좁은 자리에 쓰는 짧은 날짜. '2026-11-05' → '2026.11.05'
+export function shortVisitDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? '')) ? value.replaceAll('-', '.') : '';
+}
+
+// 달력 한 달치 칸. 일요일부터 시작하고 빈칸은 null입니다. month는 1~12입니다.
+export function monthCells(year, month) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const cells = Array(new Date(year, month - 1, 1).getDay()).fill(null);
+  const days = new Date(year, month, 0).getDate();
+  for (let d = 1; d <= days; d++) cells.push(`${year}-${pad(month)}-${pad(d)}`);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+// 임장한 날짜들. 달력에 표시합니다.
+export function visitDates(items) {
+  return new Set(items.map((x) => x.visitDate).filter(Boolean));
 }
 
 // 지역 칸이 비어 있으면 주소에서 읽습니다.
@@ -105,11 +124,13 @@ function collect(items, keyOf) {
   return map;
 }
 
-// 임장 날짜별: 최근 날짜부터, 임장일이 없는 매물은 맨 끝에 묶습니다.
-export function groupByVisitDate(items, now = new Date()) {
+// 임장 날짜별: order 'new' 최근순 | 'old' 오래된순. 임장일이 없는 매물은 늘 맨 끝에 묶습니다.
+// date를 주면 그날 매물만 돌려줍니다.
+export function groupByVisitDate(items, { order = 'new', date = null } = {}) {
   const map = collect(items, (x) => x.visitDate || '');
-  const keys = [...map.keys()].filter(Boolean).sort((a, b) => b.localeCompare(a));
-  const groups = keys.map((k) => ({ title: formatVisitDate(k, now) || k, items: map.get(k) }));
+  if (date) return map.has(date) ? [{ title: formatVisitDate(date) || date, items: map.get(date) }] : [];
+  const keys = [...map.keys()].filter(Boolean).sort((a, b) => (order === 'old' ? a.localeCompare(b) : b.localeCompare(a)));
+  const groups = keys.map((k) => ({ title: formatVisitDate(k) || k, items: map.get(k) }));
   if (map.has('')) groups.push({ title: '임장 전', items: map.get('') });
   return groups;
 }
@@ -124,15 +145,15 @@ export function groupByRegion(items) {
 }
 
 // 이름 줄 오른쪽 끝에 붙는 글씨. 지역별 보기에서는 묶음 제목이 지역이니 임장 날짜를 보여 줍니다.
-export function sideLabel(item, { view = 'date', now = new Date() } = {}) {
-  if (view === 'region') return item.visitDate ? formatVisitDate(item.visitDate, now) : '';
+export function sideLabel(item, { view = 'date' } = {}) {
+  if (view === 'region') return shortVisitDate(item.visitDate);
   return regionOf(item);
 }
 
 // 이름 아래 회색 글씨. 오른쪽 끝이나 묶음 제목과 겹치는 정보는 뺍니다.
-export function summaryLine(item, { view = 'date', now = new Date() } = {}) {
+export function summaryLine(item, { view = 'date' } = {}) {
   const parts = [];
-  if (view === 'category' && item.visitDate) parts.push(formatVisitDate(item.visitDate, now));
+  if (view === 'category' && item.visitDate) parts.push(formatVisitDate(item.visitDate));
   if (!isLocated(item)) parts.push('위치 없음');
   return parts.join(' · ');
 }
