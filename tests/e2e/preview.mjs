@@ -467,6 +467,7 @@ try {
     await page.click('#catSave');
     expect(s, '이름이 없으면 안내', (await text(page, '#catError')).includes('이름'));
     await page.type('#catName', '후보');
+    expect(s, '이름을 적으면 안내가 사라짐', !(await visible(page, '#catError')));
     await shot(page, 'l-new-category');
     await page.click('#catSave');
     await wait(50);
@@ -486,6 +487,12 @@ try {
     expect(s, '분류 없는 핀은 회색', (await colorOfPins()).some((c) => c.includes('#A9B2BC')));
     // 지도 칩으로 거르기
     expect(s, '지도에 분류 칩이 보임', await visible(page, '#catChips') && (await text(page, '#catChips')).includes('후보'));
+    const noCover = await page.evaluate(() => {
+      const t = document.getElementById('toast').getBoundingClientRect();
+      const c = document.getElementById('catChips').getBoundingClientRect();
+      return document.getElementById('toast').hidden || t.top >= c.bottom - 8;
+    });
+    expect(s, '저장 안내가 분류 칩을 가리지 않음', noCover);
     await shot(page, 'l-map-chips');
     await page.evaluate(() => [...document.querySelectorAll('#catChips .chip')].find((b) => b.textContent === '후보').click());
     expect(s, '분류를 고르면 그 핀만 보임', (await page.$$('.mock-marker')).length === 1);

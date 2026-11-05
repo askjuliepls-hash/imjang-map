@@ -1228,6 +1228,7 @@ $('catScreenClose').addEventListener('click', () => { $('catScreen').hidden = tr
 $('catAdd').addEventListener('click', () => openCatModal(null));
 $('catCancel').addEventListener('click', () => { $('catModal').hidden = true; });
 $('catSave').addEventListener('click', onSaveCategory);
+$('catName').addEventListener('input', () => { $('catError').hidden = true; });
 $('catName').addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter') {
     ev.preventDefault();

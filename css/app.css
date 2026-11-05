@@ -324,7 +324,7 @@ button.set-row { width: 100%; padding: 0; border: 0; background: none; color: va
 }
 .form-msg[data-tone="info"] { background: var(--fill); color: var(--ink-2); }
 .form-msg[data-tone="ok"] { background: var(--ok-soft); color: var(--ok-text); }
-.top-msg { position: fixed; top: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 76px); left: 16px; right: 16px; z-index: 58; box-shadow: var(--float-shadow); }
+.top-msg { position: fixed; top: calc(env(safe-area-inset-top, 0px) + var(--top-gap) + 124px); /* 검색창과 분류 칩 아래 */ left: 16px; right: 16px; z-index: 58; box-shadow: var(--float-shadow); }
 
 /* 작은 버튼은 주황으로 채웁니다. 흰 글씨 대비가 약해서 글자를 굵고 짧게 씁니다. */
 .fill-btn {
