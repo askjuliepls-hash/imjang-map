@@ -357,7 +357,7 @@ p { margin: 0; }
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: 44px;
+  bottom: 68px; /* 내 위치 버튼 위 */
   z-index: 30;
   display: grid;
   gap: 8px;
@@ -396,6 +396,19 @@ p { margin: 0; }
 .notice { display: grid; gap: 6px; padding: 14px; border-radius: var(--r-lg); background: var(--fill); }
 .notice strong { font-size: 15px; }
 .next-help { font-size: 14px; color: var(--ink-2); white-space: pre-line; }
+.view-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: var(--r-md); background: var(--fill); }
+.view-tabs button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--ink-3);
+  font-size: 14px;
+  font-weight: 600;
+}
+.view-tabs button[aria-pressed="true"] { background: var(--surface); color: var(--ink); }
+.list-head { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0 2px; font-size: 14px; font-weight: 700; color: var(--ink-2); }
+.list-head span:last-child { flex: none; font-weight: 500; color: var(--ink-3); }
 .listings { list-style: none; margin: 0; padding: 0; display: grid; }
 .listing {
   display: grid;
@@ -455,6 +468,8 @@ p { margin: 0; }
   -webkit-appearance: none;
 }
 .field textarea { resize: vertical; line-height: 1.5; }
+.field input[type="date"] { display: block; min-width: 0; max-width: 100%; }
+.field input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .field input:focus, .field textarea:focus, .loc-search input:focus { box-shadow: inset 0 0 0 2px var(--line-strong); }
 .field input::placeholder, .field textarea::placeholder, .loc-search input::placeholder { color: var(--hint); }
 .with-unit { position: relative; }

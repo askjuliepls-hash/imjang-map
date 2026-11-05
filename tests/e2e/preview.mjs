@@ -90,7 +90,7 @@ async function layout(page) {
     const vw = window.innerWidth;
     const visibleInputs = [...document.querySelectorAll('input')].filter((i) => i.offsetParent !== null);
     const small = visibleInputs.filter((i) => parseFloat(getComputedStyle(i).fontSize) < 16).map((i) => i.id);
-    const clipped = [...document.querySelectorAll('.listing strong, .listing span, .btn, .fill-btn, .score, .results strong, .results span, .fab, .form-msg, .next-help, .row p')]
+    const clipped = [...document.querySelectorAll('.listing strong, .listing span, .btn, .fill-btn, .score, .results strong, .results span, .fab, .form-msg, .next-help, .row p, .list-head span, .view-tabs button')]
       .filter((el) => el.offsetParent !== null && el.scrollWidth > el.clientWidth + 1)
       .map((el) => `${el.className}:${el.textContent.trim().slice(0, 16)}`);
     const de = document.documentElement;
@@ -348,6 +348,55 @@ try {
     await page.click('#saveListing');
     await wait(80);
     expect(s, '위치를 지우면 핀이 사라지고 목록에 남음', (await page.$$('.mock-marker')).length === 2 && (await stored(page)).length === 3);
+    expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
+    await context.close();
+  });
+
+  // K. 목록 보기: 임장 날짜별, 지역별
+  await scenario('K 목록 보기', async (s) => {
+    const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
+    await page.goto(BASE, { waitUntil: 'load' });
+    await appReady(page);
+    expect(s, '매물이 없으면 보기 전환이 안 보임', !(await visible(page, '#viewTabs')));
+    await page.click('#addBtn');
+    const firstInput = await page.$eval('#formFields input', (el) => el.id);
+    expect(s, '양식 맨 위 칸이 임장일', firstInput === 'f-visitDate', firstInput);
+    await page.$eval('#f-visitDate', (el) => { el.value = '2026-11-03'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.type('#f-name', '날짜 있는 약국');
+    await page.type('#f-netProfit', '1200');
+    expect(s, '예상 순수익도 금액으로 보임', (await text(page, '#h-netProfit')) === '1,200만원');
+    await page.click('#saveListing');
+    await wait(80);
+    await page.click('#list button');
+    expect(s, '상세에 예상 순수익이 보임', (await text(page, '#detailBody')).includes('예상 순수익(월)') && (await text(page, '#detailBody')).includes('1,200만원'));
+    await page.click('#detailClose');
+    await page.evaluate(() => {
+      const mk = (id, name, visitDate, region, address = '') => ({ id, name, visitDate, region, address, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', lat: 37.56, lng: 126.97 });
+      localStorage.setItem('imjang-map:listings', JSON.stringify({ schemaVersion: 1, data: { items: [
+        mk('a', '오래된 임장', '2025-03-02', '서울 중구'),
+        mk('b', '최근 임장', '2026-11-03', '경기 성남시 중원구'),
+        mk('c', '같은 날 임장', '2026-11-03', '서울 중구'),
+        mk('d', '아직 안 간 곳', '', '', '경기 성남시 수정구 가짜동 2'),
+        mk('e', '지역 모름', '', ''),
+      ] } }));
+    });
+    await page.reload({ waitUntil: 'load' });
+    await appReady(page);
+    const heads = () => page.$$eval('#list .list-head span:first-child', (a) => a.map((x) => x.textContent));
+    const dateHeads = await heads();
+    expect(s, '임장 날짜별: 최근 날짜부터, 임장 전은 맨 끝', dateHeads.length === 3 && dateHeads[0].includes('11월 3일') && dateHeads[1].startsWith('2025년') && dateHeads[2] === '임장 전', dateHeads.join(' / '));
+    await layoutExpect(page, s);
+    await shot(page, 'k-by-date');
+    await page.click('#viewTabs [data-view="region"]');
+    const regionHeads = await heads();
+    expect(s, '지역별: 가나다순, 주소로 지역을 읽고, 모르면 맨 끝', regionHeads.join() === '경기 성남시 수정구,경기 성남시 중원구,서울 중구,지역 없음', regionHeads.join(' / '));
+    expect(s, '지역별 줄에는 임장 날짜가 보임', (await text(page, '#list')).includes('11월 3일'));
+    await shot(page, 'k-by-region');
+    await page.reload({ waitUntil: 'load' });
+    await appReady(page);
+    expect(s, '다시 열어도 고른 보기가 유지됨', (await page.$eval('#viewTabs [data-view="region"]', (el) => el.getAttribute('aria-pressed'))) === 'true');
+    await page.click('#list button');
+    expect(s, '묶음 안의 매물을 눌러도 상세가 열림', await visible(page, '#detailScreen'));
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
   });

@@ -6,6 +6,7 @@ const LISTINGS_KEY = 'listings';
 // 양식과 상세 화면이 함께 쓰는 항목 정의입니다. 위치(lat, lng)는 양식에서 따로 다룹니다.
 export const FIELD_GROUPS = [
   { title: '기본', fields: [
+    { key: 'visitDate', label: '임장일', kind: 'date' },
     { key: 'name', label: '매물명', required: true, placeholder: '예: ○○병원 앞 약국 임대' },
     { key: 'region', label: '지역', placeholder: '예: 서울 중구' },
   ] },
@@ -25,9 +26,9 @@ export const FIELD_GROUPS = [
   { title: '수익', fields: [
     { key: 'dispensing', label: '조제료(월)', kind: 'money-or-new' },
     { key: 'otc', label: '일반매출(일)', kind: 'money-or-new' },
+    { key: 'netProfit', label: '예상 순수익(월)', kind: 'money' },
   ] },
   { title: '임장', fields: [
-    { key: 'visitDate', label: '임장일', kind: 'date' },
     { key: 'review', label: '후기·디테일', kind: 'long' },
   ] },
   { title: '기타', fields: [
@@ -74,10 +75,58 @@ export function isLocated(item) {
   return Number.isFinite(item.lat) && Number.isFinite(item.lng);
 }
 
-// 목록 한 줄의 회색 글씨
-export function summaryLine(item) {
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+// '2026-11-05' → '11월 5일 (목)'. 올해가 아니면 연도까지 붙입니다.
+export function formatVisitDate(value, now = new Date()) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? ''));
+  if (!m) return '';
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const day = `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAYS[d.getDay()]})`;
+  return d.getFullYear() === now.getFullYear() ? day : `${d.getFullYear()}년 ${day}`;
+}
+
+// 지역 칸이 비어 있으면 주소에서 읽습니다.
+export function regionOf(item) {
+  return item.region || regionFromAddress(item.address);
+}
+
+const byVisitThenNewest = (a, b) => String(b.visitDate || '').localeCompare(String(a.visitDate || ''))
+  || String(b.createdAt).localeCompare(String(a.createdAt));
+
+function collect(items, keyOf) {
+  const map = new Map();
+  for (const item of [...items].sort(byVisitThenNewest)) {
+    const key = keyOf(item);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  }
+  return map;
+}
+
+// 임장 날짜별: 최근 날짜부터, 임장일이 없는 매물은 맨 끝에 묶습니다.
+export function groupByVisitDate(items, now = new Date()) {
+  const map = collect(items, (x) => x.visitDate || '');
+  const keys = [...map.keys()].filter(Boolean).sort((a, b) => b.localeCompare(a));
+  const groups = keys.map((k) => ({ title: formatVisitDate(k, now) || k, items: map.get(k) }));
+  if (map.has('')) groups.push({ title: '임장 전', items: map.get('') });
+  return groups;
+}
+
+// 지역별: 가나다순으로, 지역을 모르는 매물은 맨 끝에 묶습니다.
+export function groupByRegion(items) {
+  const map = collect(items, regionOf);
+  const keys = [...map.keys()].filter(Boolean).sort((a, b) => a.localeCompare(b, 'ko'));
+  const groups = keys.map((k) => ({ title: k, items: map.get(k) }));
+  if (map.has('')) groups.push({ title: '지역 없음', items: map.get('') });
+  return groups;
+}
+
+// 목록 한 줄의 회색 글씨. 묶음 제목과 겹치는 정보는 뺍니다.
+export function summaryLine(item, { view = 'date', now = new Date() } = {}) {
   const parts = [];
-  if (item.region) parts.push(item.region);
+  if (view === 'date' && regionOf(item)) parts.push(regionOf(item));
+  if (view === 'region' && item.visitDate) parts.push(formatVisitDate(item.visitDate, now));
   if (item.deposit || item.rent) parts.push(`${formatManwon(item.deposit) || '-'} / ${formatManwon(item.rent) || '-'}`);
   if (item.premium) parts.push(`권리금 ${formatManwon(item.premium)}`);
   if (!isLocated(item)) parts.push('위치 없음');

@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint, detailGroups,
+  FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint, detailGroups,
+  formatVisitDate, groupByVisitDate, groupByRegion, regionOf,
   regionFromAddress, createListingStore,
 } from '../../js/lib/listings.js';
 import { createStore, KEY_PREFIX } from '../../js/lib/store.js';
@@ -129,4 +130,52 @@ test('주소를 저장한다', () => {
 test('상세 화면에 주소가 보인다', () => {
   const groups = detailGroups({ name: 'A', address: '서울 중구 가짜대로 1' });
   assert.deepEqual(groups[0].rows[0], { label: '주소', value: '서울 중구 가짜대로 1', long: false });
+});
+
+const NOW = new Date(2026, 10, 5);
+
+test('임장일이 양식 맨 위이고 예상 순수익은 수익 묶음에 있다', () => {
+  assert.equal(FIELD_GROUPS[0].fields[0].key, 'visitDate');
+  const profit = FIELD_GROUPS.find((g) => g.title === '수익').fields.map((f) => f.key);
+  assert.ok(profit.includes('netProfit'));
+  assert.equal(cleanForm({ name: 'A', netProfit: ' 800 ' }).data.netProfit, '800');
+});
+
+test('상세에 예상 순수익이 금액으로 보인다', () => {
+  const g = detailGroups({ name: 'A', netProfit: '1200' }).find((x) => x.title === '수익');
+  assert.deepEqual(g.rows[0], { label: '예상 순수익(월)', value: '1,200만원', strong: true });
+});
+
+test('임장 날짜 표시', () => {
+  assert.equal(formatVisitDate('2026-11-05', NOW), '11월 5일 (목)');
+  assert.equal(formatVisitDate('2025-01-02', NOW), '2025년 1월 2일 (목)');
+  assert.equal(formatVisitDate('', NOW), '');
+});
+
+const L = (id, visitDate, region, createdAt = '2026-11-01T00:00:00Z', address = '') => ({ id, visitDate, region, createdAt, address });
+
+test('임장 날짜별: 최근 날짜부터, 임장일 없는 매물은 맨 끝', () => {
+  const g = groupByVisitDate([L('old', '2026-10-01', ''), L('none', '', ''), L('new', '2026-11-05', ''), L('new2', '2026-11-05', '', '2026-11-03T00:00:00Z')], NOW);
+  assert.deepEqual(g.map((x) => x.title), ['11월 5일 (목)', '10월 1일 (목)', '임장 전']);
+  assert.deepEqual(g[0].items.map((x) => x.id), ['new2', 'new']);
+  assert.deepEqual(g[2].items.map((x) => x.id), ['none']);
+});
+
+test('지역별: 가나다순, 같은 지역 안에서는 최근 임장부터, 모르면 맨 끝', () => {
+  const g = groupByRegion([L('a', '2026-10-01', '서울 중구'), L('b', '2026-11-01', '서울 중구'), L('c', '', '경기 성남시 중원구'), L('d', '', '')]);
+  assert.deepEqual(g.map((x) => x.title), ['경기 성남시 중원구', '서울 중구', '지역 없음']);
+  assert.deepEqual(g[1].items.map((x) => x.id), ['b', 'a']);
+});
+
+test('지역 칸이 비어 있으면 주소에서 읽는다', () => {
+  assert.equal(regionOf(L('a', '', '', 'x', '경기 성남시 중원구 가짜대로 10')), '경기 성남시 중원구');
+  assert.equal(groupByRegion([L('a', '', '', 'x', '서울 중구 가짜대로 1')])[0].title, '서울 중구');
+});
+
+test('묶음 제목과 겹치는 정보는 목록 줄에서 뺀다', () => {
+  const item = L('a', '2026-11-05', '서울 중구');
+  item.lat = 37;
+  item.lng = 127;
+  assert.equal(summaryLine(item, { view: 'date', now: NOW }), '서울 중구');
+  assert.equal(summaryLine(item, { view: 'region', now: NOW }), '11월 5일 (목)');
 });

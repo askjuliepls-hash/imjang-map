@@ -5,7 +5,7 @@ import { createStore } from './lib/store.js';
 import { rankPlaces, formatDistance } from './lib/places.js';
 import {
   FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint,
-  detailGroups, regionFromAddress, createListingStore, makeListingId,
+  detailGroups, regionFromAddress, createListingStore, makeListingId, groupByVisitDate, groupByRegion,
 } from './lib/listings.js';
 import {
   kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage, saveErrorMessage, loadErrorMessage,
@@ -19,7 +19,8 @@ const $ = (id) => document.getElementById(id);
 
 const STANDALONE = isStandalone(window.navigator, window.matchMedia?.bind(window));
 const PLACE = openPlace(navigator.userAgent, navigator.maxTouchPoints || 0, STANDALONE);
-const listingStore = createListingStore(createStore(() => window.localStorage));
+const store = createStore(() => window.localStorage);
+const listingStore = createListingStore(store);
 
 let items = [];
 
@@ -321,29 +322,56 @@ function onLocate() {
 }
 
 // ---------- 내 매물 목록 ----------
+let view = 'date'; // 'date' 임장 날짜별 | 'region' 지역별
+
+function listingRow(item, now) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'listing';
+  const name = document.createElement('strong');
+  name.textContent = item.name;
+  b.append(name);
+  const line = summaryLine(item, { view, now });
+  if (line) {
+    const sub = document.createElement('span');
+    sub.textContent = line;
+    b.append(sub);
+  }
+  b.addEventListener('click', () => openDetail(item.id));
+  const li = document.createElement('li');
+  li.append(b);
+  return li;
+}
+
 function renderList() {
   $('count').textContent = `${items.length}개`;
   $('empty').hidden = items.length > 0;
+  $('viewTabs').hidden = items.length === 0;
+  for (const tab of $('viewTabs').querySelectorAll('button')) {
+    tab.setAttribute('aria-pressed', String(tab.dataset.view === view));
+  }
+  const now = new Date();
+  const groups = view === 'region' ? groupByRegion(items) : groupByVisitDate(items, now);
   const ul = $('list');
   ul.replaceChildren();
-  for (const item of newestFirst(items)) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'listing';
-    const name = document.createElement('strong');
-    name.textContent = item.name;
-    b.append(name);
-    const line = summaryLine(item);
-    if (line) {
-      const sub = document.createElement('span');
-      sub.textContent = line;
-      b.append(sub);
-    }
-    b.addEventListener('click', () => openDetail(item.id));
-    const li = document.createElement('li');
-    li.append(b);
-    ul.append(li);
+  for (const g of groups) {
+    const head = document.createElement('li');
+    head.className = 'list-head';
+    const title = document.createElement('span');
+    title.textContent = g.title;
+    const count = document.createElement('span');
+    count.textContent = `${g.items.length}개`;
+    head.append(title, count);
+    ul.append(head);
+    for (const item of g.items) ul.append(listingRow(item, now));
   }
+}
+
+function setView(next) {
+  view = next;
+  store.write('view', next); // 다음에 열 때도 같은 보기로. 실패해도 지장 없습니다.
+  renderList();
+  $('sheetBody').scrollTop = 0;
 }
 
 function persistItems(next) {
@@ -861,6 +889,12 @@ $('deleteBtn').addEventListener('click', () => {
   askConfirm('이 매물을 삭제할까요? 되돌릴 수 없어요.', '삭제', '취소', onDeleteConfirmed);
 });
 window.addEventListener('resize', () => map?.relayout());
+
+const savedView = store.read('view');
+if (savedView.ok && (savedView.data === 'date' || savedView.data === 'region')) view = savedView.data;
+for (const tab of $('viewTabs').querySelectorAll('button')) {
+  tab.addEventListener('click', () => setView(tab.dataset.view));
+}
 
 buildForm();
 loadItems();
