@@ -366,6 +366,9 @@ try {
     expect(s, '양식 맨 위 칸이 임장일', firstInput === 'f-visitDate', firstInput);
     await page.$eval('#f-visitDate', (el) => { el.value = '2026-11-03'; el.dispatchEvent(new Event('input', { bubbles: true })); });
     await page.type('#f-name', '날짜 있는 약국');
+    await page.type('#f-netProfit', '미정');
+    expect(s, '예상 순수익에 글자를 적을 수 있음', (await page.$eval('#f-netProfit', (el) => el.value)) === '미정' && (await page.$eval('#f-netProfit', (el) => el.inputMode)) !== 'numeric');
+    await page.$eval('#f-netProfit', (el) => { el.value = ''; });
     await page.type('#f-netProfit', '1200');
     expect(s, '예상 순수익도 금액으로 보임', (await text(page, '#h-netProfit')) === '1,200만원');
     await page.click('#saveListing');
@@ -403,8 +406,10 @@ try {
     };
     const midH = await page.$eval('#sheet', (el) => el.getBoundingClientRect().height);
     expect(s, '손잡이를 위로 끌면 목록이 커짐', (await dragSheet(-260)) === 'max' && (await page.$eval('#sheet', (el) => el.getBoundingClientRect().height)) > midH);
+    expect(s, '목록을 크게 보면 떠 있는 버튼이 검색창과 안 겹침', !(await visible(page, '#locate')) && !(await visible(page, '#addBtn')));
     await shot(page, 'k-sheet-max');
     expect(s, '손잡이를 아래로 끌면 기본 크기', (await dragSheet(240)) === 'mid');
+    expect(s, '기본 크기로 돌아오면 버튼도 돌아옴', await visible(page, '#locate') && await visible(page, '#addBtn'));
     expect(s, '더 끌어내리면 제목만 남음', (await dragSheet(300)) === 'min' && !(await visible(page, '#list')));
     await page.click('#sheetToggle');
     expect(s, '누르면 다시 열림', (await page.$eval('#sheet', (el) => el.dataset.size)) === 'mid' && await visible(page, '#list'));

@@ -288,6 +288,8 @@ p { margin: 0; }
 }
 .sheet[data-collapsed="true"] .sheet-body { display: none; }
 .sheet[data-size="max"] { max-height: 80vh; max-height: 80dvh; }
+/* 목록을 크게 보면 지도 자리가 좁아 떠 있는 버튼을 숨깁니다. */
+.app[data-sheet="max"] .fab, .app[data-sheet="max"] .add-btn { display: none; }
 .lead { font-size: 15px; color: var(--ink-2); }
 
 /* 입력과 버튼 */

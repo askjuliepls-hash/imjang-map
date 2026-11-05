@@ -207,6 +207,7 @@ function onSearch(ev) {
   const q = $('q').value.trim();
   if (!q || !kakao) return;
   if (cardPlace) hidePlaceCard();
+  if (sheetSize === 'max') setSheetSize('mid'); // 결과를 볼 지도 자리를 마련합니다.
   $('q').blur(); // 아이폰 키보드를 내려 결과가 보이게
   searchPlaces(q, (r) => {
     const ul = $('results');
@@ -870,6 +871,7 @@ function setSheetSize(size) {
   const sheet = $('sheet');
   sheetSize = size;
   sheet.dataset.size = size;
+  document.querySelector('.app').dataset.sheet = size;
   sheet.dataset.collapsed = String(size === 'min');
   sheet.style.height = '';
   sheet.style.maxHeight = '';
