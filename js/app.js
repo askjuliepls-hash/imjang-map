@@ -51,7 +51,6 @@ const checks = Object.fromEntries(CHECK_IDS.map((id) => [id, 'wait']));
 const messages = {};
 // 앱을 닫았다 열어도 이어지는 기록입니다. 버전이 바뀌면 통째로 무시합니다.
 let record = { version: VERSION, test: null, backup: null, results: {} };
-let storeProblem = null; // 시작할 때 저장 공간을 못 읽었으면 이유를 둡니다.
 let exportVia = '-';
 let reopenNav = '-';
 let persisted = '-';
@@ -553,7 +552,6 @@ function restore() {
   }
   const rec = store.read(RECORD);
   if (!rec.ok) {
-    storeProblem = rec.reason;
     setRow('persist', 'fail', storeErrorMessage(rec.reason, rec.detail));
     announce(`${NAMES.persist}: ${messages.persist}`, 'fail');
     return; // 깨진 값은 지우지 않습니다. 이번 회차는 메모리로 동작해요.

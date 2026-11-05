@@ -318,7 +318,8 @@ p { margin: 0; }
 .next .form-msg[data-tone="ok"] { background: var(--ok-soft); }
 .next .form-msg[data-tone="fail"] { background: var(--fail-soft); }
 .next .btn { height: 52px; display: grid; place-items: center; cursor: pointer; }
-.alts { display: flex; flex-wrap: wrap; gap: 0 16px; }
+.alts { display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px; }
+.alts .text-btn { display: inline-flex; align-items: center; cursor: pointer; }
 .file-input { font-size: 16px; }
 .diag { font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
 
