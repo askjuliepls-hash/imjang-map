@@ -443,6 +443,93 @@ try {
     await context.close();
   });
 
+  // L. 내 분류: 이름과 핀 색을 직접 정하고, 매물 하나에 하나씩
+  await scenario('L 내 분류', async (s) => {
+    const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
+    await page.goto(BASE, { waitUntil: 'load' });
+    await appReady(page);
+    await page.waitForSelector('#locSearchBtn:not([disabled])', { timeout: 3000 });
+    expect(s, '분류가 없으면 지도 칩이 안 보임', !(await visible(page, '#catChips')));
+    const addPlace = async (name, chipText) => {
+      await page.click('#addBtn');
+      await page.type('#f-name', name);
+      if (chipText) await page.evaluate((t) => [...document.querySelectorAll('#catChoices .chip')].find((b) => b.textContent === t).click(), chipText);
+      await page.click('#locHereBtn');
+      await wait(120);
+      await page.click('#saveListing');
+      await wait(80);
+    };
+    // 양식 안에서 새 분류 만들기
+    await page.click('#addBtn');
+    await page.type('#f-name', '후보 약국');
+    await page.click('#catNew');
+    expect(s, '양식에서 새 분류 창이 뜸', await visible(page, '#catModal') && await inView(page, '#catSave'));
+    await page.click('#catSave');
+    expect(s, '이름이 없으면 안내', (await text(page, '#catError')).includes('이름'));
+    await page.type('#catName', '후보');
+    await shot(page, 'l-new-category');
+    await page.click('#catSave');
+    await wait(50);
+    expect(s, '만든 분류가 바로 골라짐', !(await visible(page, '#catModal')) && await page.$eval('#catChoices [aria-pressed="true"]', (el) => el.textContent === '후보'));
+    expect(s, '입력하던 내용이 그대로', (await page.$eval('#f-name', (el) => el.value)) === '후보 약국');
+    await shot(page, 'l-form-chip');
+    await page.click('#locHereBtn');
+    await wait(120);
+    await page.click('#saveListing');
+    await wait(80);
+    let list = await stored(page);
+    const cats = () => page.evaluate(() => JSON.parse(localStorage.getItem('imjang-map:categories')).data.items);
+    expect(s, '매물에 분류가 저장됨', list[0].categoryId === (await cats())[0].id);
+    const colorOfPins = () => page.$$eval('.mock-marker', (a) => a.map((m) => decodeURIComponent(m.dataset.image || '')));
+    expect(s, '핀 색이 분류 색', (await colorOfPins())[0].includes('#F96949'));
+    await addPlace('분류 없는 약국');
+    expect(s, '분류 없는 핀은 회색', (await colorOfPins()).some((c) => c.includes('#A9B2BC')));
+    // 지도 칩으로 거르기
+    expect(s, '지도에 분류 칩이 보임', await visible(page, '#catChips') && (await text(page, '#catChips')).includes('후보'));
+    await shot(page, 'l-map-chips');
+    await page.evaluate(() => [...document.querySelectorAll('#catChips .chip')].find((b) => b.textContent === '후보').click());
+    expect(s, '분류를 고르면 그 핀만 보임', (await page.$$('.mock-marker')).length === 1);
+    await page.evaluate(() => [...document.querySelectorAll('#catChips .chip')].find((b) => b.textContent === '전체').click());
+    expect(s, '전체를 고르면 모두 보임', (await page.$$('.mock-marker')).length === 2);
+    // 분류별 보기
+    await goTab(page, 'list');
+    await page.click('#viewTabs [data-view="category"]');
+    const heads = await page.$$eval('#list .list-head span:first-child', (a) => a.map((x) => x.textContent));
+    expect(s, '분류별 보기: 분류 없음은 맨 끝', heads.join() === '후보,분류 없음', heads.join());
+    await layoutExpect(page, s);
+    await shot(page, 'l-by-category');
+    await page.click('#viewTabs [data-view="date"]');
+    expect(s, '다른 보기에서도 분류 이름이 보임', (await text(page, '#list')).includes('후보'));
+    await openFirst(page);
+    await page.click('#detailClose');
+    // 관리: 이름·색 수정, 삭제
+    await goTab(page, 'settings');
+    await page.click('#catManage');
+    expect(s, '설정에서 분류를 관리함', await visible(page, '#catScreen') && (await text(page, '#catList')).includes('후보 (1)'));
+    await shot(page, 'l-manage');
+    await page.evaluate(() => document.querySelector('#catList .text-btn').click());
+    await page.$eval('#catName', (el) => { el.value = ''; });
+    await page.type('#catName', '유력');
+    await page.evaluate(() => document.querySelectorAll('#catSwatches .swatch')[1].click());
+    await page.click('#catSave');
+    await wait(50);
+    expect(s, '이름과 색을 고치면 핀 색도 바뀜', (await text(page, '#catList')).includes('유력') && (await colorOfPins()).some((c) => c.includes('#3F82D9')));
+    await page.evaluate(() => document.querySelector('#catList .danger').click());
+    expect(s, '삭제는 창으로 묻고 매물은 남는다고 알림', await visible(page, '#modal') && (await text(page, '#modalText')).includes('지워지지 않아요'));
+    await page.click('#modalYes');
+    await wait(50);
+    list = await stored(page);
+    expect(s, '분류를 지워도 매물은 남고 분류 없음이 됨', list.length === 2 && list.every((x) => !x.categoryId) && (await cats()).length === 0);
+    await page.click('#catScreenClose');
+    await goTab(page, 'map');
+    expect(s, '분류가 없어지면 칩도 사라지고 핀은 회색', !(await visible(page, '#catChips')) && (await colorOfPins()).every((c) => c.includes('#A9B2BC')));
+    await page.reload({ waitUntil: 'load' });
+    await appReady(page);
+    expect(s, '다시 읽어도 유지', (await stored(page)).length === 2);
+    expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
+    await context.close();
+  });
+
   // G. 장소 검색: 전국 순위 뒤쪽이나 근처 결과도 찾을 수 있어야 합니다.
   await scenario('G 장소 검색', async (s) => {
     const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);

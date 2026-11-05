@@ -44,6 +44,7 @@ export function cleanForm(raw) {
   for (const f of ALL_FIELDS) data[f.key] = String(raw[f.key] ?? '').trim();
   data.locationMemo = String(raw.locationMemo ?? '').trim();
   data.address = String(raw.address ?? '').trim();
+  data.categoryId = raw.categoryId || null;
   const located = Number.isFinite(raw.lat) && Number.isFinite(raw.lng);
   data.lat = located ? raw.lat : null;
   data.lng = located ? raw.lng : null;
@@ -125,8 +126,8 @@ export function groupByRegion(items) {
 // 목록 한 줄의 회색 글씨. 묶음 제목과 겹치는 정보는 뺍니다.
 export function summaryLine(item, { view = 'date', now = new Date() } = {}) {
   const parts = [];
-  if (view === 'date' && regionOf(item)) parts.push(regionOf(item));
-  if (view === 'region' && item.visitDate) parts.push(formatVisitDate(item.visitDate, now));
+  if (view !== 'region' && regionOf(item)) parts.push(regionOf(item));
+  if (view !== 'date' && item.visitDate) parts.push(formatVisitDate(item.visitDate, now));
   if (!isLocated(item)) parts.push('위치 없음');
   return parts.join(' · ');
 }
@@ -183,11 +184,11 @@ export function regionFromAddress(address) {
 }
 
 // 저장 묶음. 읽기에 실패하면 쓰지 않습니다. 읽지 못한 데이터를 빈 목록으로 덮어쓰면 모두 잃기 때문입니다.
-export function createListingStore(store) {
+export function createListingStore(store, key = LISTINGS_KEY) {
   let blocked = null;
   return {
     load() {
-      const r = store.read(LISTINGS_KEY);
+      const r = store.read(key);
       if (!r.ok) {
         blocked = r.reason;
         return r;
@@ -197,7 +198,7 @@ export function createListingStore(store) {
     },
     save(items) {
       if (blocked) return { ok: false, reason: 'blocked', detail: blocked };
-      return store.write(LISTINGS_KEY, { items });
+      return store.write(key, { items });
     },
   };
 }

@@ -62,6 +62,7 @@
     this.pos = o.position;
     this.el = document.createElement('div');
     this.el.className = 'mock-marker';
+    if (o.image) this.el.dataset.image = o.image.src;
     var marker = this;
     this.el.addEventListener('click', function (e) {
       e.stopPropagation();
@@ -128,7 +129,7 @@
   window.kakao = {
     maps: {
       load: function (cb) { setTimeout(cb, 10); },
-      LatLng: LatLng, Map: Map, Marker: Marker, CustomOverlay: CustomOverlay, event: event,
+      LatLng: LatLng, Map: Map, Marker: Marker, MarkerImage: function (src) { this.src = src; }, Size: function () {}, Point: function () {}, CustomOverlay: CustomOverlay, event: event,
       services: { Places: Places, Status: Status, Geocoder: Geocoder, SortBy: { ACCURACY: 'ACCURACY', DISTANCE: 'DISTANCE' } },
     },
   };

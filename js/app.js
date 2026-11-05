@@ -3,6 +3,10 @@ import { KAKAO_JS_KEY } from './config.js';
 import { isStandalone, openPlace, parseAppVersion } from './lib/device.js';
 import { createStore } from './lib/store.js';
 import { rankPlaces, formatDistance } from './lib/places.js';
+import {
+  PALETTE, MAX_NAME, checkName, upsertCategory, removeCategory, clearCategoryFrom, categoryOf, pinColor, nextColor,
+  matchesFilter, groupByCategory, pinImageUrl, NO_CATEGORY_COLOR,
+} from './lib/categories.js';
 import { toPyeong, fromPyeong } from './lib/format.js';
 import {
   FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint,
@@ -22,8 +26,11 @@ const STANDALONE = isStandalone(window.navigator, window.matchMedia?.bind(window
 const PLACE = openPlace(navigator.userAgent, navigator.maxTouchPoints || 0, STANDALONE);
 const store = createStore(() => window.localStorage);
 const listingStore = createListingStore(store);
+const categoryStore = createListingStore(store, 'categories');
 
 let items = [];
+let categories = [];
+let mapFilter = null; // null 전체 | 'none' 분류 없음 | 분류 id
 
 // ---------- 안내 ----------
 let toastTimer = null;
@@ -133,11 +140,16 @@ function renderPins() {
   if (!map) return;
   for (const m of pins.values()) m.setMap(null);
   pins.clear();
-  for (const item of items.filter(isLocated)) {
+  for (const item of items.filter(isLocated).filter((x) => matchesFilter(x, categories, mapFilter))) {
     const marker = new kakao.maps.Marker({
       map,
       position: new kakao.maps.LatLng(item.lat, item.lng),
       title: item.name,
+      image: new kakao.maps.MarkerImage(
+        pinImageUrl(pinColor(item, categories)),
+        new kakao.maps.Size(32, 40),
+        { offset: new kakao.maps.Point(16, 40) },
+      ),
     });
     kakao.maps.event.addListener(marker, 'click', () => showPinCard(item.id));
     pins.set(item.id, marker);
@@ -299,7 +311,7 @@ function showPinCard(id) {
   pinId = id;
   $('pinName').textContent = item.name;
   const facts = listingFacts(item).filter((f) => f.label !== '보증금' && f.label !== '월세');
-  $('pinLine').textContent = [regionOf(item), ...facts.map((f) => `${f.label} ${f.value}`)].filter(Boolean).join(' · ');
+  $('pinLine').textContent = [categoryOf(item, categories)?.name, regionOf(item), ...facts.map((f) => `${f.label} ${f.value}`)].filter(Boolean).join(' · ');
   $('pinCard').hidden = false;
   $('addBtn').hidden = true;
 }
@@ -351,7 +363,14 @@ function onLocate() {
 }
 
 // ---------- 내 매물 목록 ----------
-let view = 'date'; // 'date' 임장 날짜별 | 'region' 지역별
+let view = 'date'; // 'date' 임장 날짜별 | 'region' 지역별 | 'category' 분류별
+
+function colorDot(color) {
+  const dot = document.createElement('i');
+  dot.className = 'cat-dot';
+  dot.style.background = color;
+  return dot;
+}
 
 function listingRow(item, now) {
   const b = document.createElement('button');
@@ -361,10 +380,12 @@ function listingRow(item, now) {
   name.textContent = item.name;
   b.append(name);
   const line = summaryLine(item, { view, now });
-  if (line) {
+  const cat = view === 'category' ? null : categoryOf(item, categories);
+  if (line || cat) {
     const sub = document.createElement('span');
     sub.className = 'meta';
-    sub.textContent = line;
+    if (cat) sub.append(colorDot(cat.color), cat.name, line ? ' · ' : '');
+    sub.append(line);
     b.append(sub);
   }
   const facts = listingFacts(item);
@@ -395,14 +416,18 @@ function renderList() {
     tab.setAttribute('aria-pressed', String(tab.dataset.view === view));
   }
   const now = new Date();
-  const groups = view === 'region' ? groupByRegion(items) : groupByVisitDate(items, now);
+  let groups;
+  if (view === 'category') groups = groupByCategory(items, categories);
+  else if (view === 'region') groups = groupByRegion(items);
+  else groups = groupByVisitDate(items, now);
   const ul = $('list');
   ul.replaceChildren();
   for (const g of groups) {
     const head = document.createElement('li');
     head.className = 'list-head';
     const title = document.createElement('span');
-    title.textContent = g.title;
+    if (g.color) title.append(colorDot(g.color));
+    title.append(g.title);
     const count = document.createElement('span');
     count.textContent = `${g.items.length}개`;
     head.append(title, count);
@@ -425,11 +450,13 @@ function persistItems(next) {
   items = next;
   renderList();
   renderPins();
+  renderCatManage();
   return r;
 }
 
 // ---------- 양식 ----------
 let editingId = null;
+let draftCategoryId = null;
 let draftLocation = null;
 let formDirty = false;
 
@@ -530,6 +557,11 @@ function buildForm() {
     h.textContent = g.title;
     section.append(h);
     for (const f of g.fields) {
+      if (f.key === 'region') {
+        const catField = $('catField');
+        catField.hidden = false;
+        section.append(catField);
+      }
       const box = fieldInput(f);
       if (f.key === 'name') {
         const err = document.createElement('p');
@@ -633,6 +665,8 @@ function openForm(item = null) {
       if (py) py.value = toPyeong(input.value);
     }
   }
+  draftCategoryId = item && categoryOf(item, categories) ? item.categoryId : null;
+  renderCatChoices();
   form.elements.locationMemo.value = item?.locationMemo ?? '';
   form.elements.address.value = item?.address ?? '';
   form.elements.address.readOnly = !!item?.address;
@@ -693,6 +727,7 @@ function onSaveListing(ev) {
     navigator.storage?.persist?.()?.catch?.(() => {});
   } catch { /* 없어도 저장은 됩니다 */ }
   const raw = Object.fromEntries(new FormData($('listingForm')).entries());
+  raw.categoryId = draftCategoryId;
   raw.lat = draftLocation?.lat;
   raw.lng = draftLocation?.lng;
   const r = cleanForm(raw);
@@ -840,6 +875,9 @@ function openDetail(id) {
   if (!item) return;
   detailId = id;
   $('detailTitle').textContent = item.name;
+  const cat = categoryOf(item, categories);
+  $('detailCat').hidden = !cat;
+  $('detailCat').replaceChildren(...(cat ? [colorDot(cat.color), cat.name] : []));
   const host = $('detailBody');
   host.replaceChildren();
   const groups = detailGroups(item);
@@ -893,6 +931,173 @@ function onDeleteConfirmed() {
 }
 
 // ---------- 시트 접기 ----------
+// ---------- 내 분류 ----------
+function persistCategories(next) {
+  const r = categoryStore.save(next);
+  if (!r.ok) return r;
+  categories = next;
+  renderCategoryUi();
+  return r;
+}
+
+function renderCatChoices() {
+  const host = $('catChoices');
+  host.replaceChildren();
+  const chip = (label, id, color) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.setAttribute('aria-pressed', String(draftCategoryId === id));
+    if (color) b.append(colorDot(color));
+    b.append(label);
+    b.addEventListener('click', () => {
+      draftCategoryId = id;
+      formDirty = true;
+      renderCatChoices();
+    });
+    host.append(b);
+  };
+  chip('없음', null);
+  for (const c of categories) chip(c.name, c.id, c.color);
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.className = 'chip add';
+  add.id = 'catNew';
+  add.textContent = '+ 새 분류';
+  add.addEventListener('click', () => openCatModal(null, (made) => {
+    draftCategoryId = made.id;
+    formDirty = true;
+    renderCatChoices();
+  }));
+  host.append(add);
+}
+
+function renderMapChips() {
+  const host = $('catChips');
+  host.hidden = categories.length === 0;
+  host.replaceChildren();
+  const chip = (label, value, color) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.setAttribute('aria-pressed', String(mapFilter === value));
+    if (color) b.append(colorDot(color));
+    b.append(label);
+    b.addEventListener('click', () => {
+      mapFilter = value;
+      if (pinId) hidePinCard();
+      renderMapChips();
+      renderPins();
+    });
+    host.append(b);
+  };
+  chip('전체', null);
+  for (const c of categories) chip(c.name, c.id, c.color);
+  chip('분류 없음', 'none', NO_CATEGORY_COLOR);
+}
+
+function renderCatManage() {
+  $('catCount').textContent = categories.length > 0 ? `${categories.length}개` : '없음';
+  $('catEmpty').hidden = categories.length > 0;
+  const ul = $('catList');
+  ul.replaceChildren();
+  for (const c of categories) {
+    const li = document.createElement('li');
+    const name = document.createElement('span');
+    name.className = 'cat-name';
+    const count = items.filter((x) => x.categoryId === c.id).length;
+    name.append(colorDot(c.color), `${c.name} (${count})`);
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'text-btn';
+    edit.textContent = '수정';
+    edit.addEventListener('click', () => openCatModal(c));
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'text-btn danger';
+    del.textContent = '삭제';
+    del.addEventListener('click', () => {
+      askConfirm(`'${c.name}' 분류를 삭제할까요? 매물은 지워지지 않아요.`, '삭제', '취소', () => deleteCategory(c.id));
+    });
+    li.append(name, edit, del);
+    ul.append(li);
+  }
+}
+
+function renderCategoryUi() {
+  renderCatChoices();
+  renderMapChips();
+  renderCatManage();
+  renderList();
+  renderPins();
+}
+
+function deleteCategory(id) {
+  // 매물에서 먼저 빼고 분류를 지웁니다. 중간에 실패해도 매물은 그대로 있어요.
+  const r1 = persistItems(clearCategoryFrom(items, id));
+  const r2 = r1.ok ? persistCategories(removeCategory(categories, id)) : r1;
+  if (!r2.ok) {
+    toast(saveErrorMessage(r2.reason, r2.detail), 'fail');
+    return;
+  }
+  if (mapFilter === id) mapFilter = null;
+  renderCategoryUi();
+}
+
+let catEditing = null;
+let catColor = PALETTE[0].color;
+let catAfterSave = null;
+
+function renderSwatches() {
+  const host = $('catSwatches');
+  host.replaceChildren();
+  for (const p of PALETTE) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch';
+    b.style.background = p.color;
+    b.setAttribute('aria-label', p.name);
+    b.setAttribute('aria-pressed', String(catColor === p.color));
+    b.addEventListener('click', () => {
+      catColor = p.color;
+      renderSwatches();
+    });
+    host.append(b);
+  }
+}
+
+function openCatModal(cat, afterSave = null) {
+  catEditing = cat;
+  catAfterSave = afterSave;
+  catColor = cat?.color || nextColor(categories);
+  $('catModalTitle').textContent = cat ? '분류 수정' : '새 분류';
+  $('catName').value = cat?.name || '';
+  $('catError').hidden = true;
+  renderSwatches();
+  $('catModal').hidden = false;
+}
+
+function onSaveCategory() {
+  const checked = checkName(categories, $('catName').value, catEditing?.id ?? null);
+  if (!checked.ok) {
+    const words = { empty: '이름을 적어 주세요.', long: `이름은 ${MAX_NAME}자까지 쓸 수 있어요.`, same: '같은 이름의 분류가 있어요.' };
+    $('catError').textContent = words[checked.reason];
+    $('catError').hidden = false;
+    return;
+  }
+  const random = Array.from(crypto.getRandomValues(new Uint8Array(4)), (x) => x.toString(16).padStart(2, '0')).join('');
+  const id = catEditing?.id ?? `c${Date.now().toString(36)}-${random}`;
+  const r = persistCategories(upsertCategory(categories, { id: catEditing?.id, name: checked.name, color: catColor }, id));
+  if (!r.ok) {
+    $('catError').textContent = saveErrorMessage(r.reason, r.detail);
+    $('catError').hidden = false;
+    return;
+  }
+  $('catModal').hidden = true;
+  catAfterSave?.({ id });
+  catAfterSave = null;
+}
+
 // ---------- 하단 탭 ----------
 let tab = 'map';
 
@@ -908,7 +1113,7 @@ function setTab(next) {
 }
 
 // ---------- 새 버전 자동 적용 ----------
-const busy = () => !$('formScreen').hidden || !$('detailScreen').hidden || !$('modal').hidden || picking;
+const busy = () => !$('formScreen').hidden || !$('detailScreen').hidden || !$('catScreen').hidden || !$('catModal').hidden || !$('modal').hidden || picking;
 
 async function checkForUpdate() {
   if (busy()) return; // 입력하거나 보고 있는 중에는 건드리지 않습니다.
@@ -1013,15 +1218,29 @@ $('deleteBtn').addEventListener('click', () => {
 window.addEventListener('resize', () => map?.relayout());
 
 const savedView = store.read('view');
-if (savedView.ok && (savedView.data === 'date' || savedView.data === 'region')) view = savedView.data;
+if (savedView.ok && ['date', 'region', 'category'].includes(savedView.data)) view = savedView.data;
 for (const tab of $('viewTabs').querySelectorAll('button')) {
   tab.addEventListener('click', () => setView(tab.dataset.view));
 }
 
+$('catManage').addEventListener('click', () => { $('catScreen').hidden = false; });
+$('catScreenClose').addEventListener('click', () => { $('catScreen').hidden = true; });
+$('catAdd').addEventListener('click', () => openCatModal(null));
+$('catCancel').addEventListener('click', () => { $('catModal').hidden = true; });
+$('catSave').addEventListener('click', onSaveCategory);
+$('catName').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter') {
+    ev.preventDefault();
+    onSaveCategory();
+  }
+});
+
 buildForm();
 loadItems();
+const loadedCats = categoryStore.load();
+if (loadedCats.ok) categories = loadedCats.items;
 showPlaceNotice();
-renderList();
+renderCategoryUi();
 renderDraftLocation();
 renderLocationTools();
 initMap();

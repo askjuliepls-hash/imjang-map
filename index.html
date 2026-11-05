@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1b1d23" media="(prefers-color-scheme: dark)">
-<meta name="app-version" content="0.3.0-1105a">
+<meta name="app-version" content="0.3.0-1105b">
 <title>약국 임장노트</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="stylesheet" href="./fonts/pretendard/pretendardvariable-dynamic-subset.css">
-<link rel="stylesheet" href="./css/app.css?v=0.3.0-1105a">
+<link rel="stylesheet" href="./css/app.css?v=0.3.0-1105b">
 <script>
 // 아이폰 홈 화면 앱은 위쪽 흐림 효과가 앱 글자와 겹쳐서 윗부분을 띄웁니다(css/app.css의 --top-gap).
 if (window.navigator.standalone === true) document.documentElement.classList.add('ios-app');
@@ -18,13 +18,14 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
 <script type="importmap">
 {
   "imports": {
-    "./js/config.js": "./js/config.js?v=0.3.0-1105a",
-    "./js/lib/device.js": "./js/lib/device.js?v=0.3.0-1105a",
-    "./js/lib/format.js": "./js/lib/format.js?v=0.3.0-1105a",
-    "./js/lib/listings.js": "./js/lib/listings.js?v=0.3.0-1105a",
-    "./js/lib/messages.js": "./js/lib/messages.js?v=0.3.0-1105a",
-    "./js/lib/places.js": "./js/lib/places.js?v=0.3.0-1105a",
-    "./js/lib/store.js": "./js/lib/store.js?v=0.3.0-1105a"
+    "./js/lib/categories.js": "./js/lib/categories.js?v=0.3.0-1105b",
+    "./js/config.js": "./js/config.js?v=0.3.0-1105b",
+    "./js/lib/device.js": "./js/lib/device.js?v=0.3.0-1105b",
+    "./js/lib/format.js": "./js/lib/format.js?v=0.3.0-1105b",
+    "./js/lib/listings.js": "./js/lib/listings.js?v=0.3.0-1105b",
+    "./js/lib/messages.js": "./js/lib/messages.js?v=0.3.0-1105b",
+    "./js/lib/places.js": "./js/lib/places.js?v=0.3.0-1105b",
+    "./js/lib/store.js": "./js/lib/store.js?v=0.3.0-1105b"
   }
 }
 </script>
@@ -40,6 +41,7 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
       <button class="clear-btn" id="qClear" type="button" aria-label="검색어 지우기" hidden><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
     </form>
     <ul id="results" class="results" hidden></ul>
+    <div class="cat-chips" id="catChips" role="group" aria-label="지도에 보일 분류" hidden></div>
     <button id="locate" class="fab" type="button">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="3.5" fill="currentColor"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <span>내 위치</span>
@@ -93,6 +95,7 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
       <div class="view-tabs" id="viewTabs" role="group" aria-label="목록 보기" hidden>
         <button type="button" data-view="date" aria-pressed="true">임장 날짜별</button>
         <button type="button" data-view="region" aria-pressed="false">지역별</button>
+        <button type="button" data-view="category" aria-pressed="false">분류별</button>
       </div>
       <ul class="listings" id="list"></ul>
     </div>
@@ -100,6 +103,7 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
 
   <section class="settings" id="settingsPanel">
     <h1>설정</h1>
+    <button class="set-row" id="catManage" type="button">내 분류 관리<span id="catCount"></span></button>
     <div class="set-row">백업하기<span>준비 중</span></div>
     <div class="set-row">버전<span id="ver"></span></div>
   </section>
@@ -131,6 +135,10 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
     </header>
     <form id="listingForm" class="screen-body" autocomplete="off" novalidate>
       <div id="formFields"></div>
+      <div id="catField" class="field" hidden>
+        <p class="field-label">분류</p>
+        <div class="cat-choices" id="catChoices" role="group" aria-label="분류 고르기"></div>
+      </div>
       <div id="locationBox" class="location" hidden>
         <div class="field">
           <label for="locQ">주소</label>
@@ -174,11 +182,46 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
     </header>
     <div class="screen-body">
       <p class="detail-title" id="detailTitle"></p>
+      <p class="detail-cat" id="detailCat" hidden></p>
       <div id="detailBody"></div>
       <div class="form-end">
         <p class="form-msg" id="detailMsg" role="alert" hidden></p>
         <button class="btn primary" id="editBtn" type="button">수정하기</button>
         <button class="text-btn" id="deleteBtn" type="button">삭제하기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 내 분류 관리 -->
+  <div class="screen" id="catScreen" hidden>
+    <header class="screen-head">
+      <button class="text-btn" id="catScreenClose" type="button">닫기</button>
+      <h1>내 분류</h1>
+      <span class="head-gap"></span>
+    </header>
+    <div class="screen-body">
+      <p class="muted" id="catEmpty">'후보', '제외', '재방문'처럼 내가 쓰기 편한 이름으로 만들어 보세요. 분류마다 지도 핀 색이 달라져요.</p>
+      <ul class="cat-list" id="catList"></ul>
+      <div class="form-end">
+        <button class="btn primary" id="catAdd" type="button">새 분류 만들기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 분류 만들기·고치기 -->
+  <div class="modal" id="catModal" role="dialog" aria-modal="true" aria-labelledby="catModalTitle" hidden>
+    <div class="modal-box">
+      <h2 class="modal-title" id="catModalTitle">새 분류</h2>
+      <div class="field">
+        <label for="catName">이름</label>
+        <input id="catName" type="text" autocomplete="off" placeholder="예: 후보, 제외, 재방문">
+      </div>
+      <p class="field-label">핀 색</p>
+      <div class="swatches" id="catSwatches" role="group" aria-label="핀 색 고르기"></div>
+      <p class="field-error" id="catError" hidden></p>
+      <div class="modal-actions">
+        <button class="text-btn" id="catCancel" type="button">취소</button>
+        <button class="fill-btn" id="catSave" type="button">저장</button>
       </div>
     </div>
   </div>
@@ -247,6 +290,6 @@ if (window.navigator.standalone === true) document.documentElement.classList.add
   };
 })();
 </script>
-<script type="module" src="./js/app.js?v=0.3.0-1105a"></script>
+<script type="module" src="./js/app.js?v=0.3.0-1105b"></script>
 </body>
 </html>
