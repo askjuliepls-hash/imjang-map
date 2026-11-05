@@ -1273,11 +1273,18 @@ try {
       };
       const refuseWrite = (key) => page.evaluate((k) => {
         const real = Storage.prototype.setItem;
+        window.__allowWrite = () => { Storage.prototype.setItem = real; };
         Storage.prototype.setItem = function (name, value) {
           if (name === k) throw new DOMException('full', 'QuotaExceededError');
           return real.call(this, name, value);
         };
       }, key);
+      const allowWrite = () => page.evaluate(() => window.__allowWrite());
+      // 화면을 다시 열어 저장값 기준으로 그린 뒤 확인합니다.
+      const reopenBackup = async () => {
+        await page.click('#backupClose');
+        await page.click('#backupOpen');
+      };
       const rawListings = () => page.evaluate(() => localStorage.getItem('imjang-map:listings'));
 
       // 쌓여 있던 건수가 그대로 돌아옴(예전 코드는 1건으로 나옴)
@@ -1332,11 +1339,16 @@ try {
       await openBackup(page);
       await refuseWrite('imjang-map:categories');
       await importFile();
-      expect(s, '가져오기 실패: 이유가 보이고 없던 되돌리기가 생기지 않음', (await page.$eval('#importMsg', (el) => el.dataset.tone)) === 'fail' && !(await visible(page, '#undoImport')) && (await stored(page)).length === 1);
+      const failTone = await page.$eval('#importMsg', (el) => el.dataset.tone);
+      await allowWrite();
+      await reopenBackup();
+      expect(s, '가져오기 실패: 이유가 보이고 없던 되돌리기가 생기지 않음', failTone === 'fail' && !(await visible(page, '#undoImport')) && (await stored(page)).length === 1);
       await seed({ listings: { items: [A] }, 'before-import': { listings: [A, { ...A, id: 'b' }], categories: [] }, 'backup-meta': CLEAN });
       await openBackup(page);
       await refuseWrite('imjang-map:categories');
       await importFile();
+      await allowWrite();
+      await reopenBackup();
       expect(s, '가져오기 실패: 있던 되돌리기 자료를 덮지 않음', (await text(page, '#undoImport')).includes('(2개)'));
 
       // 읽지 못하는 상태에서 가져오기가 실패하면 잠금을 유지함
@@ -1345,6 +1357,7 @@ try {
         await openBackup(page);
         await refuseWrite(key);
         await importFile();
+        await allowWrite(); // 잠금이 풀려 있으면 아래 삭제가 저장값을 덮습니다.
         await page.click('#backupClose');
         await page.click('#catManage');
         await page.click('#catList .danger');
