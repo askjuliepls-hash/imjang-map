@@ -467,11 +467,11 @@ try {
     await page.click('[data-date="2026-11-03"]');
     const pickedHeads = await heads();
     expect(s, '날짜를 고르면 그날 매물만 보임', !(await visible(page, '#calModal')) && pickedHeads.length === 1 && pickedHeads[0].startsWith('2026년 11월 3일') && (await page.$$('#list .listing')).length === 2, pickedHeads.join(' / '));
-    expect(s, '고른 날짜가 버튼에 보임', (await text(page, '#sortLabel')) === '2026.11.03');
+    expect(s, '고른 날짜가 버튼에 보이고 개수도 그날 기준', (await text(page, '#sortLabel')) === '2026.11.03' && (await text(page, '#count')) === '총 2개');
     await shot(page, 'k-date-picked');
     await page.click('#sortBtn');
     await page.click('#orderNew');
-    expect(s, '최근순을 누르면 전체로 돌아옴', (await heads()).length === 3 && (await text(page, '#sortLabel')) === '최근순');
+    expect(s, '최근순을 누르면 전체로 돌아옴', (await heads()).length === 3 && (await text(page, '#sortLabel')) === '최근순' && (await text(page, '#count')) === '총 5개');
     await page.click('#viewTabs [data-view="region"]');
     expect(s, '다른 보기에서는 정렬이 안 보이고 총 개수는 보임', !(await visible(page, '#sortBtn')) && await visible(page, '#count'));
     const regionHeads = await heads();

@@ -427,7 +427,6 @@ function listingRow(item) {
 }
 
 function renderList() {
-  $('count').textContent = `총 ${items.length}개`;
   $('listMeta').hidden = items.length === 0;
   $('empty').hidden = items.length > 0;
   $('viewTabs').hidden = items.length === 0;
@@ -439,6 +438,9 @@ function renderList() {
   if (view === 'category') groups = groupByCategory(items, categories);
   else if (view === 'region') groups = groupByRegion(items);
   else groups = dateGroups();
+  // 날짜를 골랐으면 그날 개수를 보여 줍니다.
+  const shown = view === 'date' && dateMode === 'pick' ? groups.reduce((n, g) => n + g.items.length, 0) : items.length;
+  $('count').textContent = `총 ${shown}개`;
   const ul = $('list');
   ul.replaceChildren();
   for (const g of groups) {
