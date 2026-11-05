@@ -3,9 +3,9 @@
  * 레이아웃: 위 상단바, 가운데 지도(검색창·내 위치가 떠 있음), 아래 시트. 시트는 지도를 덮지 않습니다(카카오 로고 보호).
  * 1) 화면마다 주요 버튼 하나, 크게  2) 선·그림자 대신 여백과 연회색 면, 그림자는 지도 위에 뜬 것만
  * 3) 글씨 3단계: 굵은 제목 / 본문 / 회색 보조  4) 강조색은 하나(--accent)  5) 누르는 곳은 44px 이상
- * 색: 쨍하지 않게 채도를 낮춘 '밝은 소프트 블루'(2026-11-05 사용자 선택, 후보 A·B·D·E 비교).
- * 색 대비: 본문·보조·색 글씨는 4.5:1 이상. 버튼 위 흰 글씨는 약 3.5:1로, 부드러운 색을 위해
- * 사용자가 고른 절충입니다(버튼 글씨는 크고 짧음). 햇빛 아래 읽기 불편하면 --accent를 진하게 조정.
+ * 색: 주황 #F96949(2026-11-05 사용자 선택). 옅은 주황은 쓰지 않습니다. 주황은 최소한으로만 씁니다.
+ * 버튼: 큰 버튼은 주황 테두리만, 작은 버튼은 주황으로 채워도 됩니다. 글자 버튼과 아이콘은 무채색입니다.
+ * 색 대비: 본문·보조 글씨는 4.5:1 이상. #F96949는 흰 바탕의 작은 글자로 쓰면 대비가 약 2.9:1이라 글자색으로 쓰지 않습니다.
  */
 :root {
   --bg: #f2f4f6;
@@ -17,11 +17,9 @@
   --ink-2: #4e5968;
   --ink-3: #6b7684;
   --hint: #8b95a1;
-  --accent: #468ade;
-  --accent-press: #3378ca;
-  --accent-soft: #ecf4ff;
-  --accent-text: #2c6cb9;
-  --on-accent: #ffffff;
+  --accent: #F96949;
+  --accent-press: #fef0ec;
+  --accent-text: #4e5968; /* 글자 버튼은 무채색 */
   --ok: #46a16b;
   --ok-soft: #e7f9ec;
   --ok-text: #2a7449;
@@ -49,12 +47,10 @@
     --ink-2: #c2c9d1;
     --ink-3: #9aa3ad;
     --hint: #7e8794;
-    --accent: #468ade;
-    --accent-press: #3378ca;
-    --accent-soft: #202f42;
-    --accent-text: #84baff;
-    --on-accent: #ffffff;
-    --ok: #60bb83;
+    --accent: #F96949;
+    --accent-press: #3a2823;
+    --accent-text: #c2c9d1;
+      --ok: #60bb83;
     --ok-soft: #1a3424;
     --ok-text: #81d39f;
     --warn: #e2a355;
@@ -290,7 +286,7 @@ p { margin: 0; }
   font-weight: 600;
   transition: transform .1s ease, background-color .1s ease;
 }
-.btn.primary { background: var(--accent); color: var(--on-accent); }
+.btn.primary { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); } /* 큰 버튼은 테두리만 */
 .btn.primary:active { background: var(--accent-press); transform: scale(.98); }
 .btn:disabled { opacity: .45; cursor: default; transform: none; }
 .text-btn {
