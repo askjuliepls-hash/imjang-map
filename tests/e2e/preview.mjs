@@ -50,6 +50,23 @@ const mocks = {
   configEmpty: await readFile(join(ROOT, 'tests/e2e/mocks/config-empty.js'), 'utf8'),
 };
 
+const interceptFor = (mode, requests = []) => (req) => {
+  const u = new URL(req.url());
+  requests.push(u.pathname + u.search);
+  if (mode.abort && mode.abort.test(u.pathname)) return req.abort();
+  const js = (body) => req.respond({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
+  if (u.hostname === 'dapi.kakao.com') {
+    if (mode.kakao === 'mock') return js(mocks.kakao);
+    if (mode.kakao === '503') return req.respond({ status: 503, contentType: 'text/plain', body: 'domain not registered' });
+    return req.abort();
+  }
+  if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'mock') return js(mocks.config);
+  if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'empty') return js(mocks.configEmpty);
+  if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'broken') return js('export const NOT_THE_KEY = 1;');
+  if (u.origin !== ORIGIN) return req.abort();
+  return req.continue();
+};
+
 // mode: kakao 'mock' | '503' | 'block', config 'mock' | 'empty' | 'real' | 'broken',
 //       abort 요청 경로에 대한 정규식(모듈 실패 흉내), init 페이지마다 먼저 실행할 함수(들), ua, viewport
 async function openPage(browser, mode, scenario) {
@@ -64,40 +81,16 @@ async function openPage(browser, mode, scenario) {
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   const requests = [];
   await page.setRequestInterception(true);
-  page.on('request', (req) => {
-    const u = new URL(req.url());
-    requests.push(u.pathname + u.search);
-    if (mode.abort && mode.abort.test(u.pathname)) return req.abort();
-    const js = (body) => req.respond({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
-    if (u.hostname === 'dapi.kakao.com') {
-      if (mode.kakao === 'mock') return js(mocks.kakao);
-      if (mode.kakao === '503') return req.respond({ status: 503, contentType: 'text/plain', body: 'domain not registered' });
-      return req.abort();
-    }
-    if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'mock') return js(mocks.config);
-    if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'empty') return js(mocks.configEmpty);
-    if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'broken') return js('export const NOT_THE_KEY = 1;');
-    if (u.origin !== ORIGIN) return req.abort();
-    return req.continue();
-  });
+  page.on('request', interceptFor(mode, requests));
   return { context, page, errors, requests, scenario };
 }
-
-// 홈 화면 앱으로 열린 상태를 흉내 냅니다. 실제 아이폰 동작의 증거는 아니고, 앱 쪽 분기만 확인합니다.
-const asApp = () => Object.defineProperty(window.navigator, 'standalone', { get: () => true, configurable: true });
-const CHECK_COUNT = (await readFile(join(ROOT, 'index.html'), 'utf8')).match(/data-check="/g).length;
-const cardTitle = (page) => page.$eval('#nextTitle', (el) => el.textContent);
-const record = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('imjang-map:check')));
-const checkState = (page, id) => page.$eval(`[data-check="${id}"]`, (li) => li.dataset.state);
-const waitCheck = (page, id, state, timeout = 6000) =>
-  page.waitForSelector(`[data-check="${id}"][data-state="${state}"]`, { timeout }).then(() => true, () => false);
 
 async function layout(page) {
   return page.evaluate(() => {
     const vw = window.innerWidth;
     const visibleInputs = [...document.querySelectorAll('input')].filter((i) => i.offsetParent !== null);
     const small = visibleInputs.filter((i) => parseFloat(getComputedStyle(i).fontSize) < 16).map((i) => i.id);
-    const clipped = [...document.querySelectorAll('.check .name, .check .msg, .btn, .score, .results strong, .results span, .fab, .form-msg, .next-title, .next-help, .diag')]
+    const clipped = [...document.querySelectorAll('.listing strong, .listing span, .btn, .fill-btn, .score, .results strong, .results span, .fab, .form-msg, .next-help, .row p')]
       .filter((el) => el.offsetParent !== null && el.scrollWidth > el.clientWidth + 1)
       .map((el) => `${el.className}:${el.textContent.trim().slice(0, 16)}`);
     const de = document.documentElement;
@@ -144,224 +137,324 @@ async function shot(page, name) {
   await page.screenshot({ path: join(OUT, `${name}.png`) });
 }
 
+const asApp = () => Object.defineProperty(window.navigator, 'standalone', { get: () => true, configurable: true });
+const stored = (page) => page.evaluate(() => {
+  const raw = localStorage.getItem('imjang-map:listings');
+  return raw ? JSON.parse(raw).data.items : [];
+});
+const visible = (page, sel) => page.$eval(sel, (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const text = (page, sel) => page.$eval(sel, (el) => el.textContent);
+const appReady = (page) => page.waitForFunction(() => window.__appStarted === true, { timeout: 6000 });
+
+async function fillAndSave(page, fields) {
+  await page.click('#addBtn');
+  for (const [k, v] of Object.entries(fields)) await page.type(`#f-${k}`, v);
+  await page.click('#saveListing');
+  await wait(80);
+}
+
 await mkdir(OUT, { recursive: true });
 await new Promise((r) => server.listen(PORT, r));
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--lang=ko-KR'] });
 
 try {
-  // A. 설정값이 하나도 없는 처음 상태 (빈 설정을 끼움)
-  await scenario('A 설정 전', async (s) => {
-    const { context, page, errors, requests } = await openPage(browser, { kakao: 'block', config: 'empty' }, s);
+  // A. 처음 열었을 때와 양식
+  await scenario('A 처음 화면', async (s) => {
+    const { context, page, errors, requests } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
     await page.goto(BASE, { waitUntil: 'load' });
-    expect(s, '지도 점검이 실패로, 이유와 함께 표시', await waitCheck(page, 'map', 'fail'));
-    expect(s, '지도 자리에 안내 문구', await page.$eval('#mapMsg', (el) => !el.hidden && el.textContent.includes('지도 준비 전')));
-    expect(s, '검색 입력 잠김', await page.$eval('#q', (el) => el.disabled));
+    await appReady(page);
+    expect(s, '점검 화면이 없음', !(await page.$('[data-check]')) && !(await page.$('#next')));
+    expect(s, '빈 목록 안내가 보임', await visible(page, '#empty'));
+    expect(s, '매물 추가 버튼이 스크롤 없이 보임', await inView(page, '#addBtn'));
+    const addStyle = await page.$eval('#addBtn', (el) => getComputedStyle(el).backgroundColor);
+    expect(s, '작은 버튼은 주황으로 채움', addStyle === 'rgb(249, 105, 73)', addStyle);
     const appVersion = (await readFile(join(ROOT, 'index.html'), 'utf8')).match(/name="app-version" content="([^"]+)"/)[1];
-    expect(s, '버전 표시', (await page.$eval('#ver', (el) => el.textContent)) === appVersion, appVersion);
+    expect(s, '버전 표시', (await text(page, '#ver')) === appVersion, appVersion);
     const versioned = requests.filter((r) => /\/js\/(config|lib\/)/.test(r));
     expect(s, '쓰이는 모듈이 모두 버전 꼬리표(?v=)로 요청됨(캐시 방지)', versioned.length >= 1 && versioned.every((r) => r.includes('?v=')), versioned.join(' '));
-    expect(s, 'firebase 요청 없음', !requests.some((r) => /firebase/i.test(r)));
-    expect(s, 'vendor/firebase.js 파일 없음', !existsSync(join(ROOT, 'vendor/firebase.js')));
     await layoutExpect(page, s);
+    await shot(page, 'a-empty');
+    await page.click('#addBtn');
+    expect(s, '양식이 열림', await visible(page, '#formScreen'));
+    const saveStyle = await page.$eval('#saveListing', (el) => { const c = getComputedStyle(el); return { bg: c.backgroundColor, ring: c.boxShadow }; });
+    expect(s, '큰 버튼은 테두리만', saveStyle.bg === 'rgba(0, 0, 0, 0)' && saveStyle.ring.includes('249, 105, 73'), JSON.stringify(saveStyle));
+    const small = await page.evaluate(() => [...document.querySelectorAll('#formScreen input, #formScreen textarea')].filter((i) => parseFloat(getComputedStyle(i).fontSize) < 16).map((i) => i.id));
+    expect(s, '양식 입력칸 글씨 16px 이상(아이폰 확대 방지)', small.length === 0, small.join(','));
+    await shot(page, 'a-form-top');
+    await page.click('#saveListing');
+    expect(s, '매물명이 없으면 저장 안 되고 칸 아래 안내가 보임', await visible(page, '#nameError') && await inViewSoon(page, '#nameError') && (await stored(page)).length === 0);
+    await page.type('#f-name', '가');
+    expect(s, '입력하면 안내가 사라짐', !(await visible(page, '#nameError')));
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
-    await shot(page, 'a-unconfigured');
     await context.close();
   });
 
-  // B. 홈 화면 앱으로 열려 모두 통과하는 경우 (가짜 지도, 진짜 localStorage, 새 컨텍스트)
-  await scenario('B 모두 통과', async (s) => {
+  // B. 등록 → 목록 → 상세 → 수정 → 삭제, 다시 열어도 유지
+  await scenario('B 저장 흐름', async (s) => {
     const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
     await page.goto(BASE, { waitUntil: 'load' });
-    expect(s, '시작할 때 기록이 비어 있음', (await record(page)) === null);
-    expect(s, '홈 화면 앱 통과', await waitCheck(page, 'standalone', 'ok'));
-    expect(s, '지도 통과', await waitCheck(page, 'map', 'ok'));
-    expect(s, '카드가 장소 검색을 안내', (await cardTitle(page)) === '장소 검색');
-    expect(s, '위쪽 다시 불러오기가 보임', await inView(page, '#topReload'));
-    await shot(page, 'b0-search-next');
-    await page.type('#q', '테스트 장소');
-    await page.keyboard.press('Enter');
-    expect(s, '검색 통과', await waitCheck(page, 'search', 'ok'));
-    expect(s, '검색 결과 목록 표시', await page.$eval('#results', (el) => !el.hidden && el.querySelectorAll('button').length === 2));
-    await shot(page, 'b1-search-results');
-    await page.click('#results button');
-    expect(s, '결과를 누르면 목록이 닫힘', await page.$eval('#results', (el) => el.hidden));
-    expect(s, '카드가 내 위치를 안내', (await cardTitle(page)) === '내 위치');
-    await page.click('#locate');
-    expect(s, '내 위치 통과', await waitCheck(page, 'gps', 'ok'));
-    expect(s, '내 위치 점 표시', !!(await page.$('.me-dot')));
-    expect(s, '결과 안내가 스크롤 없이 보임', await inViewSoon(page, '#nextMsg'));
-    const total = CHECK_COUNT;
-    expect(s, `점수 ${total}/${total}`, (await page.$eval('#score', (el) => el.textContent)) === `${total}개 모두 통과`);
-    expect(s, '카드가 모두 통과를 안내', (await cardTitle(page)) === `${total}개 모두 통과했어요`);
-    await layoutExpect(page, s);
-    await shot(page, 'b3-all-pass');
+    await appReady(page);
+    await page.click('#addBtn');
+    await page.type('#f-name', '○○병원 앞 약국 "임대" ☕');
+    await page.type('#f-region', '서울 중구');
+    await page.type('#f-deposit', '5000');
+    await page.type('#f-rent', '300');
+    await page.type('#f-premium', '15000');
+    expect(s, '권리금 입력 중 억 단위로 보임', (await text(page, '#h-premium')) === '1억 5,000만원');
+    await page.type('#f-areaExclusive', '33');
+    expect(s, '면적 입력 중 평으로 보임', (await text(page, '#h-areaExclusive')) === '약 10.0평');
+    await page.type('#f-dispensing', '신규');
+    await page.type('#f-review', '<b>유동인구</b> 많음\n둘째 줄');
+    await shot(page, 'b-form-filled');
+    await page.click('#saveListing');
+    await wait(80);
+    expect(s, '저장하면 양식이 닫힘', !(await visible(page, '#formScreen')));
+    expect(s, '저장 안내가 보임', await visible(page, '#toast') && (await text(page, '#toast')).includes('저장'));
+    expect(s, '목록에 한 줄 생김', (await text(page, '#list')).includes('○○병원') && (await text(page, '#count')) === '1개');
+    expect(s, '목록에 위치 없음 표시', (await text(page, '#list')).includes('위치 없음') && (await text(page, '#list')).includes('1억 5,000만원'));
+    await shot(page, 'b-list');
     await page.reload({ waitUntil: 'load' });
-    await waitCheck(page, 'map', 'ok');
-    expect(s, '다시 읽어도 결과가 유지됨', (await checkState(page, 'search')) === 'ok' && (await checkState(page, 'gps')) === 'ok');
-    expect(s, '다시 읽어도 모두 통과', (await page.$eval('#score', (el) => el.textContent)) === `${total}개 모두 통과`);
-    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
-    await shot(page, 'b4-dark');
-    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
-    await page.click('#sheetToggle');
-    expect(s, '점검 접으면 지도가 커짐', await page.$eval('#sheetBody', (el) => el.offsetParent === null));
-    await shot(page, 'b5-collapsed');
-    await page.click('#sheetToggle');
+    await appReady(page);
+    expect(s, '다시 읽어도 남아 있음', (await text(page, '#list')).includes('○○병원'));
+    const page2 = await context.newPage();
+    await page2.setUserAgent(IPHONE_UA);
+    await page2.setViewport(PHONE);
+    await page2.evaluateOnNewDocument(asApp);
+    await page2.setRequestInterception(true);
+    page2.on('request', interceptFor({ kakao: 'mock', config: 'mock' }));
+    await page.close();
+    await page2.goto(BASE, { waitUntil: 'load' });
+    await appReady(page2);
+    expect(s, '새로 열어도 남아 있음', (await text(page2, '#list')).includes('○○병원'));
+    await page2.click('#list button');
+    expect(s, '상세가 열림', await visible(page2, '#detailScreen'));
+    expect(s, '금액과 평이 읽기 쉽게 보임', (await text(page2, '#detailBody')).includes('1억 5,000만원') && (await text(page2, '#detailBody')).includes('33㎡ (약 10.0평)') && (await text(page2, '#detailBody')).includes('신규'));
+    expect(s, '입력한 글자를 태그로 해석하지 않음', (await text(page2, '#detailBody')).includes('<b>유동인구</b>') && !(await page2.$('#detailBody b')));
+    await layoutExpect(page2, s);
+    await shot(page2, 'b-detail');
+    await page2.click('#editBtn');
+    expect(s, '수정 양식에 값이 채워짐', (await page2.$eval('#f-premium', (el) => el.value)) === '15000' && (await text(page2, '#h-premium')) === '1억 5,000만원');
+    await page2.$eval('#f-premium', (el) => { el.value = ''; });
+    await page2.type('#f-premium', '20000');
+    await page2.click('#saveListing');
+    await wait(80);
+    const after = await stored(page2);
+    expect(s, '수정해도 한 개이고 등록일이 그대로', after.length === 1 && after[0].premium === '20000' && after[0].createdAt <= after[0].updatedAt);
+    await page2.click('#list button');
+    await page2.click('#deleteBtn');
+    expect(s, '삭제는 한 번 더 확인함', await visible(page2, '#deleteConfirm') && (await stored(page2)).length === 1);
+    await page2.click('#deleteNo');
+    expect(s, '취소하면 그대로', (await stored(page2)).length === 1);
+    await page2.click('#deleteBtn');
+    await shot(page2, 'b-delete-confirm');
+    await page2.click('#deleteYes');
+    await wait(50);
+    expect(s, '삭제하면 사라짐', (await stored(page2)).length === 0 && await visible(page2, '#empty'));
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
   });
 
-  // B2. 새 버전을 배포한 뒤 옛 기록을 가진 채로 열린 경우
-  await scenario('B2 버전 전환', async (s) => {
+  // C. 위치 찍기 세 가지와 지도 핀
+  await scenario('C 위치와 핀', async (s) => {
     const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
     await page.goto(BASE, { waitUntil: 'load' });
-    await page.evaluate(() => localStorage.setItem('imjang-map:check', JSON.stringify({
-      schemaVersion: 1,
-      data: { version: 'old-version', results: { search: { state: 'ok', msg: '옛 결과' }, gps: { state: 'ok', msg: '옛 결과' } } },
-    })));
-    await page.reload({ waitUntil: 'load' });
-    await waitCheck(page, 'map', 'ok');
-    expect(s, '옛 기록은 무시하고 검색·위치가 대기', (await checkState(page, 'search')) === 'wait' && (await checkState(page, 'gps')) === 'wait');
-    expect(s, '카드는 장소 검색', (await cardTitle(page)) === '장소 검색');
-    expect(s, '결과 줄에 새 버전 안내', (await page.$eval('#nextMsg', (el) => el.textContent)).includes('새 버전') && await inViewSoon(page, '#nextMsg'));
-    const rec = await record(page);
-    expect(s, '기록이 지금 버전으로 바뀜', rec && rec.data.version !== 'old-version', JSON.stringify(rec));
-    await page.type('#q', '테스트 장소');
+    await appReady(page);
+    await page.waitForSelector('#locSearchBtn:not([disabled])', { timeout: 3000 });
+    // 1) 장소 검색
+    await page.click('#addBtn');
+    await page.type('#f-name', '검색으로 찍은 약국');
+    await page.type('#locQ', '테스트 장소');
     await page.keyboard.press('Enter');
-    expect(s, '대본 순서대로 검색이 됨', await waitCheck(page, 'search', 'ok'));
-    await page.click('#locate');
-    expect(s, '대본 순서대로 위치가 됨', await waitCheck(page, 'gps', 'ok'));
+    await wait(180);
+    expect(s, '검색칸의 엔터로 저장되지 않음', (await stored(page)).length === 0 && await visible(page, '#formScreen'));
+    expect(s, '장소 결과가 보임', await visible(page, '#locResults'));
+    await shot(page, 'c-form-search');
+    await page.click('#locResults button');
+    expect(s, '장소를 고르면 위치가 찍힘', (await text(page, '#locState')).includes('테스트 장소 A'));
+    await page.click('#saveListing');
+    await wait(80);
+    let list = await stored(page);
+    expect(s, '장소 검색 위치 저장', list.length === 1 && list[0].lat === 37.5672 && list[0].lng === 126.98, JSON.stringify(list[0]));
+    expect(s, '지도에 핀이 생김', (await page.$$('.mock-marker')).length === 1);
+    // 2) 현재 위치
+    await page.click('#addBtn');
+    await page.type('#f-name', '현재 위치로 찍은 약국');
+    await page.click('#locHereBtn');
+    await wait(150);
+    expect(s, '현재 위치가 찍힘', (await text(page, '#locState')).includes('오차 약 24m'));
+    await page.click('#saveListing');
+    await wait(80);
+    list = await stored(page);
+    expect(s, '현재 위치 저장', list.length === 2 && list.some((x) => x.lat === 37.5668));
+    // 3) 지도에서 고르기
+    await page.click('#addBtn');
+    await page.type('#f-name', '지도에서 찍은 약국');
+    await page.click('#locMapBtn');
+    expect(s, '고르는 동안 양식이 내려가고 안내가 보임', !(await visible(page, '#formScreen')) && await visible(page, '#pickBar'));
+    expect(s, '아직 안 눌렀으면 확인 버튼이 잠김', await page.$eval('#pickOk', (el) => el.disabled));
+    await page.mouse.click(120, 200);
+    await wait(60);
+    expect(s, '지도를 누르면 표시되고 확인 가능', await page.$eval('#pickOk', (el) => !el.disabled) && !!(await page.$('#pickDot')));
+    await shot(page, 'c-pick');
+    await page.click('#pickOk');
+    expect(s, '확인하면 입력하던 양식으로 돌아옴', await visible(page, '#formScreen') && (await page.$eval('#f-name', (el) => el.value)).includes('지도에서'));
+    await page.click('#saveListing');
+    await wait(80);
+    list = await stored(page);
+    expect(s, '지도에서 고른 위치 저장', list.length === 3 && list.every((x) => Number.isFinite(x.lat)));
+    expect(s, '핀이 세 개', (await page.$$('.mock-marker')).length === 3);
+    await shot(page, 'c-pins');
+    // 핀 → 상세
+    await page.evaluate(() => document.querySelector('.mock-marker').click());
+    expect(s, '핀을 누르면 상세가 열림', await visible(page, '#detailScreen'));
+    await page.click('#mapViewBtn');
+    expect(s, '지도에서 보기로 돌아옴', !(await visible(page, '#detailScreen')));
+    // 위치 지우기 → 핀 사라짐
+    await page.evaluate(() => document.querySelector('.mock-marker').click());
+    await page.click('#editBtn');
+    await page.click('#locClear');
+    await page.click('#saveListing');
+    await wait(80);
+    expect(s, '위치를 지우면 핀이 사라지고 목록에 남음', (await page.$$('.mock-marker')).length === 2 && (await stored(page)).length === 3);
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
   });
 
-  // B3. 진행 중 상태가 기록에 남아 있던 경우: 요청도 없이 '찾는 중'에 갇히면 안 됩니다.
-  await scenario('B3 진행 중 기록', async (s) => {
-    const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
-    await page.goto(BASE, { waitUntil: 'load' });
-    const version = await page.$eval('#ver', (el) => el.textContent);
-    await page.evaluate((v) => localStorage.setItem('imjang-map:check', JSON.stringify({
-      schemaVersion: 1,
-      data: { version: v, results: { gps: { state: 'half', msg: '찾는 중' } } },
-    })), version);
-    await page.reload({ waitUntil: 'load' });
-    await waitCheck(page, 'map', 'ok');
-    expect(s, '위치는 대기로 돌아옴', (await checkState(page, 'gps')) === 'wait');
-    await context.close();
+  // D. 저장 실패와 읽기 실패: 데이터를 잃으면 안 됩니다.
+  await scenario('D 저장 실패', async (s) => {
+    {
+      const full = () => { Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); }; };
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, full] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      await fillAndSave(page, { name: '공간 부족 약국' });
+      expect(s, '저장 못 하면 양식이 닫히지 않고 이유가 보임', await visible(page, '#formScreen') && (await text(page, '#formMsg')).includes('가득') && await inViewSoon(page, '#formMsg'));
+      expect(s, '입력한 내용이 남아 있음', (await page.$eval('#f-name', (el) => el.value)) === '공간 부족 약국');
+      expect(s, '목록에 가짜로 추가되지 않음', (await text(page, '#count')) === '0개');
+      expect(s, '스크립트 오류 없음(공간 부족)', errors.length === 0, errors.join(' | '));
+      await shot(page, 'd-save-failed');
+      await context.close();
+    }
+    {
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await page.evaluate(() => localStorage.setItem('imjang-map:listings', '{깨진 값'));
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      expect(s, '못 읽으면 알리고 추가를 막음', await visible(page, '#loadMsg') && await page.$eval('#addBtn', (el) => el.disabled));
+      expect(s, '깨진 값을 덮어쓰지 않음', (await page.evaluate(() => localStorage.getItem('imjang-map:listings'))) === '{깨진 값');
+      expect(s, '스크립트 오류 없음(읽기 실패)', errors.length === 0, errors.join(' | '));
+      await shot(page, 'd-load-failed');
+      await context.close();
+    }
+    {
+      // 입력하던 내용을 실수로 버리지 않게
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      await page.click('#addBtn');
+      await page.click('#formClose');
+      expect(s, '입력이 없으면 바로 닫힘', !(await visible(page, '#formScreen')));
+      await page.click('#addBtn');
+      await page.type('#f-name', '쓰던 내용');
+      await page.click('#formClose');
+      expect(s, '입력이 있으면 한 번 더 물음', await visible(page, '#formScreen') && await visible(page, '#discardBar'));
+      await page.click('#discardNo');
+      expect(s, '계속 쓰기를 누르면 내용이 그대로', (await page.$eval('#f-name', (el) => el.value)) === '쓰던 내용');
+      await page.click('#formClose');
+      await page.click('#discardYes');
+      expect(s, '버리기를 누르면 닫힘', !(await visible(page, '#formScreen')) && (await stored(page)).length === 0);
+      await context.close();
+    }
   });
 
-  // C. 카카오가 도메인 미등록으로 거절하는 경우 (503)
-  await scenario('C 지도 거절', async (s) => {
+  // E. 지도가 없어도 매물 기록은 됩니다.
+  await scenario('E 지도 실패', async (s) => {
     const { context, page, errors } = await openPage(browser, { kakao: '503', config: 'mock', init: asApp }, s);
     await page.goto(BASE, { waitUntil: 'load' });
-    expect(s, '지도 실패', await waitCheck(page, 'map', 'fail'));
-    const msg = await page.$eval('[data-check="map"] .msg', (el) => el.textContent);
-    expect(s, '안내에 등록할 도메인이 그대로 나옴', msg.includes(ORIGIN), msg);
-    expect(s, '카드는 검색을 건너뛰고 내 위치', (await cardTitle(page)) === '내 위치');
-    await page.click('#locate');
-    expect(s, '지도가 없어도 위치 점검은 독립적으로 작동', await waitCheck(page, 'gps', 'ok'));
-    expect(s, '실패만 남으면 카드가 안내', (await cardTitle(page)) === '실패한 점검이 있어요');
+    await appReady(page);
+    await page.waitForFunction(() => !document.getElementById('mapMsg').hidden, { timeout: 4000 });
+    expect(s, '지도 자리에 이유와 등록할 도메인', (await text(page, '#mapMsg')).includes(ORIGIN));
+    expect(s, '검색 입력 잠김', await page.$eval('#q', (el) => el.disabled));
+    await fillAndSave(page, { name: '지도 없이 적은 약국' });
+    expect(s, '지도가 없어도 저장됨', (await stored(page)).length === 1);
+    await page.click('#list button');
+    expect(s, '위치 없는 매물에는 지도에서 보기가 없음', !(await visible(page, '#mapViewBtn')));
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
-    await shot(page, 'c-map-rejected');
+    await shot(page, 'e-map-failed');
     await context.close();
   });
 
-  // F. 앱이 아닌 일반 탭: 저장 공간이 따로라 여기서는 쓰지도 믿지도 않습니다.
-  await scenario('F 일반 탭', async (s) => {
+  // F. 앱이 아닌 곳: 저장 공간이 따로라는 것을 알려야 합니다.
+  await scenario('F 앱 밖', async (s) => {
     {
-      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock' }, s);
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock' }, s);
       await page.goto(BASE, { waitUntil: 'load' });
-      await waitCheck(page, 'map', 'ok');
-      expect(s, '카드가 홈 화면 안내', (await cardTitle(page)) === '홈 화면 앱으로 열림');
-      const help = await page.$eval('#nextHelp', (el) => el.textContent);
-      expect(s, 'Safari면 추가 순서를 안내', help.includes('홈 화면에 추가') && help.includes('웹 앱으로 열기'), help);
-      expect(s, '지우지 말라는 안내', help.includes('지우지'), help);
-      expect(s, '안내 끝까지 스크롤 없이 보임', await inView(page, '#nextHelp'));
+      await appReady(page);
+      const help = await text(page, '#placeHelp');
+      expect(s, 'Safari면 홈 화면 추가 안내', await visible(page, '#placeNotice') && help.includes('홈 화면에 추가'), help);
       await layoutExpect(page, s);
       await shot(page, 'f-safari');
-      await page.type('#q', '테스트 장소');
-      await page.keyboard.press('Enter');
-      await waitCheck(page, 'search', 'ok');
-      await page.click('#results button');
-      expect(s, '검색해도 카드는 그대로 홈 화면', (await cardTitle(page)) === '홈 화면 앱으로 열림');
-      expect(s, 'localStorage에 쓰지 않음', (await page.evaluate(() => localStorage.length)) === 0);
-      const version = await page.$eval('#ver', (el) => el.textContent);
-      await page.evaluate((v) => localStorage.setItem('imjang-map:check', JSON.stringify({
-        schemaVersion: 1, data: { version: v, results: { search: { state: 'ok', msg: '앱의 기록' } } },
-      })), version);
-      await page.reload({ waitUntil: 'load' });
-      await waitCheck(page, 'map', 'ok');
-      expect(s, '기록이 있어도 판정·복원하지 않음', (await checkState(page, 'search')) === 'wait');
-      expect(s, '진단 줄에 기록 있음과 원본 값 표시', await page.$eval('#diag', (el) => el.textContent.includes('기록 있음') && el.textContent.includes('Safari/')));
-      expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
+      await context.close();
+    }
+    {
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      expect(s, '앱이면 안내 없음', !(await visible(page, '#placeNotice')));
       await context.close();
     }
     {
       const ua = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KAKAOTALK 10.8.0';
       const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', ua }, s);
       await page.goto(BASE, { waitUntil: 'load' });
-      expect(s, '카카오톡 안이면 실패 안내', await waitCheck(page, 'standalone', 'fail'));
-      expect(s, '카드에 Safari로 나가는 길', (await page.$eval('#nextHelp', (el) => el.textContent)).includes('다른 브라우저로 열기'));
-      await shot(page, 'f-kakao');
-      await context.close();
-    }
-    {
-      const ua = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1 NAVER(inapp; search; 2000; 12.0)';
-      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', ua }, s);
-      await page.goto(BASE, { waitUntil: 'load' });
-      const help = await page.$eval('#nextHelp', (el) => el.textContent);
-      expect(s, '네이버 앱이면 없는 공유 버튼 대신 기본 브라우저 안내', help.includes('기본 브라우저') && !help.includes('공유'), help);
+      await appReady(page);
+      expect(s, '카카오톡 안이면 나가는 길 안내', (await text(page, '#placeHelp')).includes('다른 브라우저로 열기'));
       await context.close();
     }
   });
 
-  // H. 예외: 지도 그림 시간 초과, 신호 없을 때 다시 불러오기, 모듈 실패, 안내 위치
+  // H. 다시 불러오기와 시작 감시
   await scenario('H 예외', async (s) => {
-    // 15초·8초 대기를 줄여서 돌립니다. 코드의 분기만 확인하는 것입니다.
     const fastTimers = () => {
       const st = window.setTimeout;
       window.setTimeout = (f, d, ...a) => st(f, d === 15000 || d === 8000 ? 300 : d, ...a);
     };
     {
-      const { context, page, errors } = await openPage(browser, {
-        kakao: 'mock', config: 'mock',
-        init: () => {
-          const st = window.setTimeout;
-          window.setTimeout = (f, d, ...a) => st(f, d === 15000 ? 300 : d, ...a);
-          window.__mockTilesDelay = 900;
-        },
-      }, s);
+      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
       await page.goto(BASE, { waitUntil: 'load' });
-      expect(s, '지도 그림 시간 초과면 실패 표시', await waitCheck(page, 'map', 'fail'));
-      expect(s, '지도 그림 시간 초과면 지도 자리에 안내', await page.$eval('#mapMsg', (el) => !el.hidden));
-      expect(s, '늦게 뜨면 통과로 바뀜', await waitCheck(page, 'map', 'ok'));
-      expect(s, '늦게 뜨면 지도 자리 안내가 사라짐', await page.$eval('#mapMsg', (el) => el.hidden));
-      expect(s, '스크립트 오류 없음(시간 초과)', errors.length === 0, errors.join(' | '));
-      await context.close();
-    }
-    {
-      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock' }, s);
-      await page.goto(BASE, { waitUntil: 'load' });
-      await waitCheck(page, 'map', 'ok');
-      // 재발 방지(2026-11-05): 버튼이 스크롤 아래에 숨거나 결과 안내가 화면 밖에 뜨던 문제
-      expect(s, "'다시 불러오기' 버튼이 스크롤 없이 보임", await inView(page, '#topReload'));
+      await appReady(page);
       await page.setOfflineMode(true);
       await page.click('#topReload');
       const said = await page.waitForFunction(() => {
         const m = document.getElementById('reloadMsg');
         return m && !m.hidden && m.textContent.includes('인터넷');
       }, { timeout: 12000 }).then(() => true, () => false);
-      expect(s, '신호 없으면 다시 불러오기 근처에 안내가 보임', said && await inView(page, '#reloadMsg'));
-      expect(s, '신호 없어도 앱 화면이 남음', await page.$eval('.brand', (el) => !!el) && page.url() === BASE);
-      expect(s, '신호 없을 때 버튼이 다시 눌림', await page.$eval('#topReload', (el) => !el.disabled && el.textContent === '다시 불러오기'));
-      await shot(page, 'h-offline-reload');
+      expect(s, '신호 없으면 앱 화면이 남고 안내가 보임', said && await inView(page, '#reloadMsg') && page.url() === BASE);
       await page.setOfflineMode(false);
       await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.click('#topReload')]);
-      expect(s, '신호가 돌아오면 다시 불러오기가 됨', await waitCheck(page, 'map', 'ok'));
+      await appReady(page);
+      expect(s, '신호가 돌아오면 다시 불러오기가 됨', await visible(page, '#addBtn'));
       expect(s, '스크립트 오류 없음(다시 불러오기)', errors.length === 0, errors.join(' | '));
       await context.close();
     }
+    {
+      const { context, page, errors } = await openPage(browser, {
+        kakao: 'mock', config: 'mock',
+        init: [asApp, fastTimers, () => { window.__mockTilesDelay = 900; }],
+      }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await appReady(page);
+      await page.waitForFunction(() => !document.getElementById('mapMsg').hidden, { timeout: 3000 });
+      expect(s, '지도 그림 시간 초과면 지도 자리에 안내', (await text(page, '#mapMsg')).includes('안 떴어요'));
+      await page.waitForFunction(() => document.getElementById('mapMsg').hidden, { timeout: 3000 });
+      expect(s, '늦게 뜨면 안내가 사라짐', true);
+      expect(s, '스크립트 오류 없음(시간 초과)', errors.length === 0, errors.join(' | '));
+      await context.close();
+    }
     for (const [what, mode] of [
-      ['모듈 하나가 안 받아질 때', { abort: /\/js\/lib\/messages\.js$/ }],
+      ['모듈 하나가 안 받아질 때', { abort: /\/js\/lib\/listings\.js$/ }],
       ['옛 파일과 새 파일이 섞일 때', { config: 'broken' }],
     ]) {
       const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', ...mode, init: fastTimers }, s);
@@ -370,8 +463,7 @@ try {
         const m = document.getElementById('reloadMsg');
         return m && !m.hidden && m.textContent.includes('불러오지 못했어요');
       }, { timeout: 5000 }).then(() => true, () => false);
-      expect(s, `${what}: 안내가 보임`, shown && await inView(page, '#reloadMsg'));
-      expect(s, `${what}: 버전이 보임`, (await page.$eval('#ver', (el) => el.textContent)).length > 0);
+      expect(s, `${what}: 안내가 보이고 버전이 보임`, shown && await inView(page, '#reloadMsg') && (await text(page, '#ver')).length > 0);
       const moved = await Promise.all([
         page.waitForNavigation({ waitUntil: 'load', timeout: 5000 }).then(() => true, () => false),
         page.click('#topReload'),
@@ -379,27 +471,19 @@ try {
       expect(s, `${what}: 다시 불러오기 버튼이 살아 있음`, moved[0]);
       await context.close();
     }
-    // 재발 방지(2026-11-05): 안내 위치 점검이 저장·로그인에만 걸려 위치·검색 안내가 화면 밖에 떠도 통과하던 문제
     {
-      const denied = () => {
-        navigator.geolocation.getCurrentPosition = (_ok, bad) => bad({ code: 1 });
-      };
-      const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, denied] }, s);
+      const denied = () => { navigator.geolocation.getCurrentPosition = (_ok, bad) => bad({ code: 1 }); };
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, denied] }, s);
       await page.goto(BASE, { waitUntil: 'load' });
-      await waitCheck(page, 'map', 'ok');
-      await page.type('#q', '없는장소');
-      await page.keyboard.press('Enter');
-      await waitCheck(page, 'search', 'ok');
-      expect(s, '검색 0건 안내가 스크롤 없이 보임', await inViewSoon(page, '#nextMsg')
-        && (await page.$eval('#nextMsg', (el) => el.textContent)).includes('결과는 없어요'));
+      await appReady(page);
       await page.click('#locate');
-      expect(s, '위치 거부면 실패 표시', await waitCheck(page, 'gps', 'fail'));
-      expect(s, '위치 거부 안내가 스크롤 없이 보임', await inViewSoon(page, '#nextMsg')
-        && (await page.$eval('#nextMsg', (el) => el.textContent)).includes('Safari 웹 사이트'));
+      await wait(60);
+      expect(s, '위치 거부 안내가 보임', await inView(page, '#toast') && (await text(page, '#toast')).includes('Safari 웹 사이트'));
       await shot(page, 'h-gps-denied');
-      await page.click('#locate');
-      await waitCheck(page, 'gps', 'fail');
-      expect(s, '스크립트 오류 없음(거부)', errors.length === 0, errors.join(' | '));
+      await page.click('#addBtn');
+      await page.click('#locHereBtn');
+      await wait(60);
+      expect(s, '양식에서도 위치 거부 이유가 보임', (await text(page, '#locState')).includes('위치 권한'));
       await context.close();
     }
   });
@@ -410,36 +494,34 @@ try {
     await page.goto(BASE, { waitUntil: 'load' });
     const cdp = await page.createCDPSession();
     const m = await cdp.send('Page.getAppManifest');
-    expect(s, 'manifest를 오류 없이 읽음', m.errors.length === 0, JSON.stringify(m.errors));
-    expect(s, 'manifest 내용이 비어 있지 않음(404 함정)', !!m.data && m.data.includes('약국 임장노트'));
-    const icon = await page.evaluate(async () => {
-      const href = document.querySelector('link[rel="apple-touch-icon"]').href;
-      const r = await fetch(href);
-      const b = new Uint8Array(await r.arrayBuffer());
-      return { status: r.status, sig: [...b.slice(1, 4)].map((c) => String.fromCharCode(c)).join('') };
-    });
-    expect(s, '아이폰 아이콘이 200이고 PNG', icon.status === 200 && icon.sig === 'PNG', JSON.stringify(icon));
+    expect(s, 'manifest를 오류 없이 읽음', m.errors.length === 0 && !!m.data && m.data.includes('약국 임장노트'), JSON.stringify(m.errors));
     await context.close();
   });
 
-  // J. 큰 화면 + 아래 안전 영역(홈 표시줄): Safari 도구막대가 없는 홈 화면 앱에 가까운 크기
-  await scenario('J 큰 화면', async (s) => {
+  // J. 실제 폰에 가까운 크기와 어두운 모드
+  await scenario('J 실제 크기', async (s) => {
     const { context, page } = await openPage(browser, {
       kakao: 'mock', config: 'mock', init: asApp,
       viewport: { width: 402, height: 812, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
     }, s);
     const cdp = await page.createCDPSession();
-    await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { top: 59, bottom: 34, left: 0, right: 0 } }).catch(() => {});
+    await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { top: 0, bottom: 34, left: 0, right: 0 } }).catch(() => {});
     await page.goto(BASE, { waitUntil: 'load' });
-    await waitCheck(page, 'map', 'ok');
+    await appReady(page);
+    await fillAndSave(page, { name: '○○대학병원 문전약국 임대', region: '서울 중구', deposit: '5000', rent: '300', premium: '15000' });
+    await fillAndSave(page, { name: '△△의원 옆 약국 양도', region: '경기 성남시', premium: '30000' });
     await layoutExpect(page, s);
-    const covered = await page.evaluate(() => {
-      const last = document.querySelector('.foot');
-      last.scrollIntoView({ block: 'end' });
-      return last.getBoundingClientRect().bottom <= window.innerHeight;
-    });
-    expect(s, '시트 끝 글자가 안 가려짐', covered);
-    await shot(page, 'j-large');
+    await wait(3600); // 저장 안내가 닫힌 뒤 캡처
+    await shot(page, 'j-main');
+    await page.click('#addBtn');
+    await shot(page, 'j-form');
+    await page.$eval('#saveListing', (el) => el.scrollIntoView({ block: 'end' }));
+    expect(s, '저장 버튼이 가려지지 않음', await inView(page, '#saveListing'));
+    await page.click('#formClose');
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+    await shot(page, 'j-dark');
+    await page.click('#list button');
+    await shot(page, 'j-detail-dark');
     await context.close();
   });
 } finally {

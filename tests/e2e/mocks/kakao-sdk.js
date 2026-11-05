@@ -12,9 +12,9 @@
       (m[type] = m[type] || []).push(fn);
       handlers.set(target, m);
     },
-    trigger: function (target, type) {
+    trigger: function (target, type, arg) {
       var m = handlers.get(target) || {};
-      (m[type] || []).forEach(function (fn) { fn(); });
+      (m[type] || []).forEach(function (fn) { fn(arg); });
     },
   };
 
@@ -30,7 +30,13 @@
     tag.style.cssText = 'position:absolute;left:10px;bottom:10px;font:12px sans-serif;color:#5b6b63;background:rgba(255,255,255,.8);padding:2px 6px;border-radius:4px';
     el.appendChild(tag);
     var self = this;
-    el.addEventListener('click', function () { event.trigger(self, 'click'); });
+    el.addEventListener('click', function (e) {
+      var r = el.getBoundingClientRect();
+      var scale = 40000;
+      var lng = self.center.lng + (e.clientX - r.left - r.width / 2) / scale;
+      var lat = self.center.lat - (e.clientY - r.top - r.height / 2) / scale;
+      event.trigger(self, 'click', { latLng: new LatLng(lat, lng) });
+    });
     setTimeout(function () { event.trigger(self, 'tilesloaded'); }, window.__mockTilesDelay || 60);
   }
   Map.prototype.setCenter = function (c) { this.center = c; this._redraw(); };
@@ -54,6 +60,12 @@
     this.map = null;
     this.pos = o.position;
     this.el = document.createElement('div');
+    this.el.className = 'mock-marker';
+    var marker = this;
+    this.el.addEventListener('click', function (e) {
+      e.stopPropagation();
+      event.trigger(marker, 'click');
+    });
     this.el.style.cssText = 'position:absolute;width:24px;height:24px;margin:-26px 0 0 -12px;background:#e5483b;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 4px rgba(0,0,0,.3)';
     this.setMap(o.map);
   }

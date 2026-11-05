@@ -15,9 +15,9 @@
 {
   "imports": {
     "./js/config.js": "./js/config.js?v=0.1.2-1105a",
-    "./js/lib/checks.js": "./js/lib/checks.js?v=0.1.2-1105a",
     "./js/lib/device.js": "./js/lib/device.js?v=0.1.2-1105a",
     "./js/lib/format.js": "./js/lib/format.js?v=0.1.2-1105a",
+    "./js/lib/listings.js": "./js/lib/listings.js?v=0.1.2-1105a",
     "./js/lib/messages.js": "./js/lib/messages.js?v=0.1.2-1105a",
     "./js/lib/store.js": "./js/lib/store.js?v=0.1.2-1105a"
   }
@@ -51,35 +51,102 @@
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="3.5" fill="currentColor"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <span>내 위치</span>
     </button>
+    <button id="addBtn" class="fill-btn add-btn" type="button">+ 매물 추가</button>
+    <p id="toast" class="form-msg top-msg" role="status" hidden></p>
+    <div id="pickBar" class="pick-bar" hidden>
+      <p>지도에서 약국 위치를 눌러 주세요.</p>
+      <div class="pick-actions">
+        <button class="text-btn" id="pickCancel" type="button">취소</button>
+        <button class="fill-btn" id="pickOk" type="button" disabled>이 위치로 하기</button>
+      </div>
+    </div>
   </main>
 
   <section class="sheet" id="sheet" data-collapsed="false">
     <button class="sheet-head" id="sheetToggle" type="button" aria-expanded="true" aria-controls="sheetBody">
       <span class="grabber" aria-hidden="true"></span>
       <span class="sheet-row">
-        <span class="sheet-title">연결 점검</span>
-        <span class="score" id="score" data-done="false">연결 확인 중</span>
+        <span class="sheet-title">내 매물</span>
+        <span class="score" id="count">0개</span>
       </span>
     </button>
     <div class="sheet-body" id="sheetBody">
-      <div class="next" id="next" hidden>
-        <p class="form-msg" id="nextMsg" role="status" hidden></p>
-        <div class="next-title" id="nextTitle"></div>
-        <p class="next-help" id="nextHelp"></p>
+      <div class="notice" id="placeNotice" hidden>
+        <strong>여기에 저장한 내용은 홈 화면 아이콘에서 안 보여요</strong>
+        <p class="next-help" id="placeHelp"></p>
       </div>
-      <ol class="checks">
-        <li class="check" data-check="standalone" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">홈 화면 앱으로 열림</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
-        <li class="check" data-check="map" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">지도</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
-        <li class="check" data-check="search" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">장소 검색</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
-        <li class="check" data-check="gps" data-state="wait"><span class="icon" aria-hidden="true"></span><div class="body"><div class="name">내 위치</div><p class="msg"></p></div><span class="state sr-only">대기</span></li>
-      </ol>
-      <p class="lead" id="lead"></p>
-      <p class="diag" id="diag"></p>
-      <div class="foot">
-        <span>버전 <span id="ver"></span></span>
-      </div>
+      <p class="form-msg" id="loadMsg" role="alert" hidden></p>
+      <p class="muted" id="empty">아직 저장한 매물이 없어요. 위의 '매물 추가'로 시작해 보세요.</p>
+      <ul class="listings" id="list"></ul>
+      <div class="foot"><span>버전 <span id="ver"></span></span></div>
     </div>
   </section>
+
+  <!-- 매물 양식 -->
+  <div class="screen" id="formScreen" hidden>
+    <header class="screen-head">
+      <button class="text-btn" id="formClose" type="button">취소</button>
+      <h1 id="formTitle">매물 추가</h1>
+      <span class="head-gap"></span>
+    </header>
+    <form id="listingForm" class="screen-body" autocomplete="off" novalidate>
+      <div id="formFields"></div>
+      <div id="locationBox" class="location" hidden>
+        <p class="field-label">위치</p>
+        <p class="muted" id="locState"></p>
+        <button class="text-btn" id="locClear" type="button" hidden>위치 지우기</button>
+        <div class="loc-search">
+          <input id="locQ" type="search" placeholder="장소나 주소 검색" enterkeyhint="search" autocomplete="off" aria-label="위치를 찍을 장소 검색">
+          <button class="text-btn" id="locSearchBtn" type="button">검색</button>
+        </div>
+        <ul id="locResults" class="loc-results" hidden></ul>
+        <div class="loc-actions">
+          <button class="text-btn" id="locMapBtn" type="button">지도에서 고르기</button>
+          <button class="text-btn" id="locHereBtn" type="button">현재 위치로</button>
+        </div>
+        <div class="field">
+          <label for="f-locationMemo">위치 메모</label>
+          <input id="f-locationMemo" name="locationMemo" type="text" autocomplete="off" placeholder="예: 병원 정문 건너편 1층">
+        </div>
+      </div>
+      <div class="form-end">
+        <div class="confirm" id="discardBar" hidden>
+          <p>쓰던 내용이 사라져요. 그만 쓸까요?</p>
+          <div class="pick-actions">
+            <button class="text-btn" id="discardNo" type="button">계속 쓰기</button>
+            <button class="text-btn danger" id="discardYes" type="button">버리기</button>
+          </div>
+        </div>
+        <p class="form-msg" id="formMsg" role="alert" hidden></p>
+        <button class="btn primary" id="saveListing" type="submit">저장하기</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- 매물 상세 -->
+  <div class="screen" id="detailScreen" hidden>
+    <header class="screen-head">
+      <button class="text-btn" id="detailClose" type="button">닫기</button>
+      <h1>매물 정보</h1>
+      <button class="text-btn" id="mapViewBtn" type="button">지도에서 보기</button>
+    </header>
+    <div class="screen-body">
+      <p class="detail-title" id="detailTitle"></p>
+      <div id="detailBody"></div>
+      <div class="form-end">
+        <p class="form-msg" id="detailMsg" role="alert" hidden></p>
+        <button class="btn primary" id="editBtn" type="button">수정하기</button>
+        <button class="text-btn" id="deleteBtn" type="button">삭제하기</button>
+        <div class="confirm" id="deleteConfirm" hidden>
+          <p>이 매물을 삭제할까요? 되돌릴 수 없어요.</p>
+          <div class="pick-actions">
+            <button class="text-btn" id="deleteNo" type="button">취소</button>
+            <button class="text-btn danger" id="deleteYes" type="button">삭제</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 <script>
 // 홈 화면 앱에는 새로고침 버튼이 없어서 직접 둡니다.

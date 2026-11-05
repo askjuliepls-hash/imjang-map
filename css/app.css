@@ -1,6 +1,6 @@
 /*
  * 임장 지도 디자인 기준 (토스·카카오T 참고)
- * 레이아웃: 위 상단바, 가운데 지도(검색창·내 위치가 떠 있음), 아래 시트. 시트는 지도를 덮지 않습니다(카카오 로고 보호).
+ * 레이아웃: 위 상단바, 가운데 지도(검색창·내 위치·매물 추가가 떠 있음), 아래 시트(내 매물). 시트는 지도를 덮지 않습니다.
  * 1) 화면마다 주요 버튼 하나, 크게  2) 선·그림자 대신 여백과 연회색 면, 그림자는 지도 위에 뜬 것만
  * 3) 글씨 3단계: 굵은 제목 / 본문 / 회색 보조  4) 강조색은 하나(--accent)  5) 누르는 곳은 44px 이상
  * 색: 주황 #F96949(2026-11-05 사용자 선택). 옅은 주황은 쓰지 않습니다. 주황은 최소한으로만 씁니다.
@@ -234,8 +234,8 @@ p { margin: 0; }
   position: relative;
   z-index: 10;
   min-height: 0;
-  max-height: 54vh;
-  max-height: 54dvh;
+  max-height: 44vh;
+  max-height: 44dvh;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   background: var(--surface);
@@ -310,64 +310,139 @@ p { margin: 0; }
 .form-msg[data-tone="ok"] { background: var(--ok-soft); color: var(--ok-text); }
 .top-msg { position: absolute; top: 12px; left: 16px; right: 16px; z-index: 40; box-shadow: var(--sheet-shadow); }
 
-/* 다음 할 일 카드: 큰 버튼은 늘 이 자리에 하나만 */
-.next { display: grid; gap: 8px; padding: 14px; border-radius: var(--r-lg); background: var(--fill); }
-.next-title { font-size: 16px; font-weight: 700; }
-.next-help { font-size: 14px; color: var(--ink-2); white-space: pre-line; }
-.next .form-msg { background: var(--surface); padding: 10px 12px; }
-.next .form-msg[data-tone="ok"] { background: var(--ok-soft); }
-.next .form-msg[data-tone="fail"] { background: var(--fail-soft); }
-.diag { font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
-
-/* 연결 점검 목록 */
-.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.check {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  align-items: start;
-  gap: 12px;
-  padding: 8px 0;
-}
-.check[data-state="wait"] .msg { display: none; }
-.check .icon {
-  position: relative;
-  width: 24px;
-  height: 24px;
-  margin-top: 1px;
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 2px var(--line-strong);
-}
-.check[data-state="ok"] .icon { background: var(--ok); box-shadow: none; }
-.check[data-state="ok"] .icon::after {
-  content: "";
-  position: absolute;
-  left: 8.5px;
-  top: 5px;
-  width: 5px;
-  height: 10px;
-  border: solid #ffffff;
-  border-width: 0 2.5px 2.5px 0;
-  transform: rotate(45deg);
-}
-.check[data-state="fail"] .icon { background: var(--fail); box-shadow: none; }
-.check[data-state="half"] .icon { background: var(--warn); box-shadow: none; }
-.check[data-state="fail"] .icon::after,
-.check[data-state="half"] .icon::after {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
+/* 작은 버튼은 주황으로 채웁니다. 흰 글씨 대비가 약해서 글자를 굵고 짧게 씁니다. */
+.fill-btn {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--accent);
   color: #ffffff;
-  font-size: 14px;
-  font-weight: 800;
-  line-height: 1;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
 }
-.check[data-state="fail"] .icon::after { content: "!"; }
-.check[data-state="half"] .icon::after { content: "···"; font-size: 12px; letter-spacing: -1px; }
-.check .body { min-width: 0; display: grid; gap: 2px; }
-.check .name { font-size: 16px; font-weight: 600; }
-.check .msg { font-size: 14px; color: var(--ink-3); overflow-wrap: anywhere; }
-.check[data-state="fail"] .msg { color: var(--fail-text); }
+.fill-btn:active { background: #e5573a; }
+.fill-btn:disabled { opacity: .45; }
+.add-btn {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 5;
+  box-shadow: var(--float-shadow);
+}
+.search-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid #ffffff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / .35);
+}
+.pick-bar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--float-shadow);
+}
+.pick-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+
+/* 내 매물 목록 */
+.muted { font-size: 14px; color: var(--ink-3); }
+.notice { display: grid; gap: 6px; padding: 14px; border-radius: var(--r-lg); background: var(--fill); }
+.notice strong { font-size: 15px; }
+.next-help { font-size: 14px; color: var(--ink-2); white-space: pre-line; }
+.listings { list-style: none; margin: 0; padding: 0; display: grid; }
+.listing {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+}
+.listing strong { font-size: 16px; font-weight: 600; }
+.listing span { font-size: 14px; color: var(--ink-3); }
+
+/* 양식과 상세: 지도 위에 온전히 덮는 화면 */
+.screen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--surface);
+}
+.screen-head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top, 0px) + 6px) 16px 6px;
+}
+.screen-head h1 { margin: 0; font-size: 17px; font-weight: 700; }
+.screen-head .text-btn:first-child { justify-self: start; }
+.screen-head .text-btn:last-child { justify-self: end; }
+.screen-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 4px 20px calc(env(safe-area-inset-bottom, 0px) + 24px);
+}
+.group { display: grid; gap: 12px; padding: 16px 0; }
+.group h2 { margin: 0; font-size: 18px; font-weight: 700; }
+.field { display: grid; gap: 6px; }
+.field label, .field-label { font-size: 14px; color: var(--ink-2); }
+.field input, .field textarea, .loc-search input {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--fill);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px; /* 아이폰 확대 방지 */
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.field textarea { resize: vertical; line-height: 1.5; }
+.field input:focus, .field textarea:focus, .loc-search input:focus { box-shadow: inset 0 0 0 2px var(--line-strong); }
+.field input::placeholder, .field textarea::placeholder, .loc-search input::placeholder { color: var(--hint); }
+.with-unit { position: relative; }
+.with-unit input { padding-right: 56px; }
+.with-unit span { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-size: 14px; color: var(--ink-3); }
+.hint { min-height: 0; font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.hint:empty { display: none; }
+.field-error { font-size: 14px; color: var(--fail-text); }
+.location { display: grid; gap: 8px; }
+.location .text-btn { justify-self: start; color: var(--ink-2); padding: 0; }
+.loc-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.loc-actions { display: flex; gap: 20px; }
+.loc-results { list-style: none; margin: 0; padding: 0; display: grid; }
+.loc-results button { display: grid; gap: 2px; width: 100%; min-height: 48px; padding: 8px 0; border: 0; background: none; color: var(--ink); text-align: left; }
+.loc-results strong { font-size: 15px; font-weight: 600; }
+.loc-results span { font-size: 13px; color: var(--ink-3); }
+.form-end { display: grid; gap: 12px; padding-top: 16px; }
+.confirm { display: grid; gap: 4px; padding: 14px; border-radius: var(--r-lg); background: var(--fill); font-size: 15px; }
+.text-btn.danger { color: var(--fail-text); }
+.detail-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; padding: 8px 0; }
+.row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.row span { font-size: 14px; color: var(--ink-3); }
+.row p { font-size: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.row p.strong { font-weight: 700; }
+.row.long { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 
 .foot {
   display: flex;

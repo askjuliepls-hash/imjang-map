@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage,
+  kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage, saveErrorMessage, loadErrorMessage,
 } from '../../js/lib/messages.js';
 
 test('카카오 로드 실패 안내에 실제 앱 도메인이 들어간다', () => {
@@ -36,4 +36,14 @@ test('Safari 안내에는 추가 순서가, 그 밖에는 기본 브라우저 �
 test('카카오톡 안내는 아이폰과 안드로이드가 다르다', () => {
   assert.match(kakaoInappMessage('iPhone'), /Safari/);
   assert.match(kakaoInappMessage('Android'), /오른쪽 아래/);
+});
+
+test('저장 실패 안내는 이유마다 다르고 입력이 남아 있다고 알린다', () => {
+  assert.notEqual(saveErrorMessage('quota'), saveErrorMessage('unavailable'));
+  assert.match(saveErrorMessage('quota'), /그대로/);
+  assert.match(saveErrorMessage('unknown', 'WeirdError'), /WeirdError/);
+});
+
+test('읽기 실패 안내는 덮어쓰지 않는다고 알린다', () => {
+  assert.match(loadErrorMessage('corrupt'), /덮어쓰지/);
 });

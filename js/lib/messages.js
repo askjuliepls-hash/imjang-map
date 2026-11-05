@@ -52,3 +52,23 @@ export function kakaoInappMessage(ua = '') {
   }
   return "카카오톡 안에서 열렸어요. 여기 저장한 내용은 다른 곳에서 안 보여요. 위쪽 가운데 주소를 눌러 '다른 브라우저로 열기'로 Safari에서 열어 주세요.";
 }
+
+// 매물을 저장하지 못했을 때. 입력한 내용은 양식에 그대로 남아 있습니다.
+export function saveErrorMessage(reason, detail = '') {
+  switch (reason) {
+    case 'quota':
+      return '저장 공간이 가득 차서 저장하지 못했어요. 입력한 내용은 그대로 있어요. 캡처를 Claude에게 보내 주세요.';
+    case 'unavailable':
+      return '이 기기에 저장이 막혀 있어요. 입력한 내용은 그대로 있어요. 캡처를 Claude에게 보내 주세요.';
+    case 'blocked':
+      return '저장된 매물을 읽지 못해서, 덮어쓰지 않으려고 저장을 멈췄어요. 캡처를 Claude에게 보내 주세요.';
+    case 'verify-failed':
+      return '저장한 값을 다시 읽어 보니 달라요. 입력한 내용은 그대로 있어요. 캡처를 Claude에게 보내 주세요.';
+    default:
+      return `저장하지 못했어요. (${detail || reason}) 입력한 내용은 그대로 있어요.`;
+  }
+}
+
+export function loadErrorMessage(reason, detail = '') {
+  return `저장된 매물을 읽지 못했어요. (${reason}${detail ? ` ${detail}` : ''}) 데이터를 덮어쓰지 않도록 추가를 막아 뒀어요. 위쪽 '다시 불러오기'를 눌러 보고, 그래도 이러면 캡처를 Claude에게 보내 주세요.`;
+}

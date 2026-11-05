@@ -15,3 +15,24 @@ export function formatWhen(d, now = new Date()) {
   const md = `${d.getMonth() + 1}월 ${d.getDate()}일 ${formatClock(d)}`;
   return sameYear ? md : `${d.getFullYear()}년 ${md}`;
 }
+
+// 만원 단위 입력을 읽기 쉽게 바꿉니다. 숫자가 아니면('신규' 등) 그대로 둡니다.
+export function formatManwon(value) {
+  const v = String(value ?? '').trim();
+  if (!v) return '';
+  const digits = v.replace(/[,\s]/g, '');
+  if (!/^\d+$/.test(digits)) return v;
+  const n = Number(digits);
+  const eok = Math.floor(n / 10000);
+  const man = n % 10000;
+  if (eok === 0) return `${man.toLocaleString('en-US')}만원`;
+  if (man === 0) return `${eok}억`;
+  return `${eok}억 ${man.toLocaleString('en-US')}만원`;
+}
+
+// 1평 = 3.3058㎡. 소수 한 자리로 돌려줍니다.
+export function toPyeong(squareMeters) {
+  const n = Number(String(squareMeters ?? '').replace(/[,\s]/g, ''));
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return (n / 3.3058).toFixed(1);
+}
