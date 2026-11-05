@@ -47,9 +47,10 @@ const mocks = {
   kakao: await readFile(join(ROOT, 'tests/e2e/mocks/kakao-sdk.js'), 'utf8'),
   firebase: await readFile(join(ROOT, 'tests/e2e/mocks/firebase.js'), 'utf8'),
   config: await readFile(join(ROOT, 'tests/e2e/mocks/config.js'), 'utf8'),
+  configEmpty: await readFile(join(ROOT, 'tests/e2e/mocks/config-empty.js'), 'utf8'),
 };
 
-// mode: kakao 'mock' | '503' | 'block', firebase 'mock' | 'real', config 'mock' | 'real'
+// mode: kakao 'mock' | '503' | 'block', firebase 'mock' | 'real', config 'mock' | 'empty' | 'real'
 async function openPage(browser, mode, scenario) {
   const context = await browser.createBrowserContext();
   await context.overridePermissions(ORIGIN, ['geolocation']);
@@ -71,6 +72,7 @@ async function openPage(browser, mode, scenario) {
       return req.abort();
     }
     if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'mock') return js(mocks.config);
+    if (u.origin === ORIGIN && u.pathname.endsWith('/js/config.js') && mode.config === 'empty') return js(mocks.configEmpty);
     if (u.origin === ORIGIN && u.pathname.endsWith('/vendor/firebase.js') && mode.firebase === 'mock') return js(mocks.firebase);
     if (u.origin !== ORIGIN) return req.abort();
     return req.continue();
@@ -117,10 +119,10 @@ await new Promise((r) => server.listen(PORT, r));
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--lang=ko-KR'] });
 
 try {
-  // A. 설정값이 없는 지금 상태 (실제 config.js)
+  // A. 설정값이 하나도 없는 처음 상태 (빈 설정을 끼움)
   {
     const s = 'A 설정 전';
-    const { context, page, errors, requests } = await openPage(browser, { kakao: 'block', firebase: 'real', config: 'real' }, s);
+    const { context, page, errors, requests } = await openPage(browser, { kakao: 'block', firebase: 'real', config: 'empty' }, s);
     await page.goto(BASE, { waitUntil: 'load' });
     expect(s, '지도 점검이 실패로, 이유와 함께 표시', await waitCheck(page, 'map', 'fail'));
     expect(s, '로그인 점검이 실패로, 이유와 함께 표시', await waitCheck(page, 'login', 'fail'));
