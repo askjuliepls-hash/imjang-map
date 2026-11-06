@@ -1272,10 +1272,8 @@ function renderBackupInfo() {
   $('backupLast').textContent = last
     ? `마지막 백업: ${last}.${pendingChanges > 0 ? ` 그 뒤 변경 ${pendingChanges}건은 폰에만 있어요.` : ''}`
     : `아직 백업한 적이 없어요.${pendingChanges > 0 ? ` 변경 ${pendingChanges}건이 폰에만 있어요.` : ''}`;
-  $('persistLine').hidden = persistGranted === null;
-  $('persistLine').textContent = persistGranted
-    ? '자동 삭제 방지: 켜짐'
-    : '자동 삭제 방지: 아이폰이 허용하지 않았어요. 백업을 꼭 해 주세요.';
+  $('persistLine').hidden = persistGranted !== false;
+  $('persistLine').textContent = '자동 삭제 방지: 아이폰이 허용하지 않았어요. 백업을 꼭 해 주세요.';
   $('backupHow').textContent = APPLE
     ? "누른 뒤 '카카오톡' → '나와의 채팅'으로 보내 주세요. 카톡 파일은 시간이 지나면 만료될 수 있으니, 내용이 바뀌면 다시 보내 주세요."
     : '누르면 파일이 저장돼요. 폰 밖에 옮겨 두면 폰을 바꿔도 되살릴 수 있어요.';

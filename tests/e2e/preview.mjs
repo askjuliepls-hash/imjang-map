@@ -1190,7 +1190,7 @@ try {
       await page.click('#modalYes');
       await wait(60);
       expect(s, '지금 백업하기를 누르면 백업 화면으로 감', await visible(page, '#backupScreen') && !(await visible(page, '#modal')) && (await text(page, '#backupLast')).includes('3건'));
-      expect(s, '자동 삭제 방지 상태가 보임', (await text(page, '#persistLine')).includes('켜짐'));
+      expect(s, '자동 삭제 방지가 켜져 있으면 그 줄을 숨김', !(await visible(page, '#persistLine')));
       await shot(page, 'w-backup-pending');
       await page.click('#exportBtn');
       await wait(100);
