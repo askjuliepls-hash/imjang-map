@@ -1324,8 +1324,8 @@ function renderBackupInfo() {
   // 백업 안 한 변경이 있으면 설정 탭에 점을 찍어 어느 화면에서든 보이게 합니다.
   document.querySelector('#tabbar [data-tab="settings"]').dataset.alert = String(pendingChanges > 0);
   $('backupLast').textContent = last
-    ? `마지막 백업: ${last}.${pendingChanges > 0 ? ` 그 뒤 변경 ${pendingChanges}건은 폰에만 있어요.` : ''}`
-    : `아직 백업한 적이 없어요.${pendingChanges > 0 ? ` 변경 ${pendingChanges}건이 폰에만 있어요.` : ''}`;
+    ? `마지막 백업: ${last}.${pendingChanges > 0 ? ` 그 뒤 변경 ${pendingChanges}건은 백업 전이에요.` : ''}`
+    : `아직 백업한 적이 없어요.${pendingChanges > 0 ? ` 변경 ${pendingChanges}건이 백업 전이에요.` : ''}`;
   $('persistLine').hidden = persistGranted !== false;
   $('persistLine').textContent = '자동 삭제 방지: 아이폰이 허용하지 않았어요. 백업을 꼭 해 주세요.';
   $('backupHow').textContent = APPLE
@@ -1439,9 +1439,11 @@ function replaceAll(listings, cats) {
 
 function applyImport(r) {
   // 교체 전 내용과 백업 기록을 먼저 남깁니다. 여기서 실패하면 교체하지 않습니다.
-  // 되돌리기를 쓰기 전에 또 가져오면 처음 남긴 내용을 그대로 둡니다. 기한도 없습니다.
+  // 가져온 그대로인 채 또 가져오면(파일을 잘못 고른 경우) 먼저 남긴 내용을 그대로 둡니다.
+  // 가져온 뒤 바꾼 내용이 있으면 그것이 쓰던 내용이니 새로 남깁니다. 기한은 없습니다.
   const prevSnap = store.read('before-import');
-  const keep = prevSnap.ok && prevSnap.data?.listings;
+  const untouched = backupMeta.imported && countChanges(backupMeta.imported, { listings: items, categories }) === 0;
+  const keep = prevSnap.ok && prevSnap.data?.listings && untouched;
   if (!keep) {
     const { lastBackupAt, dirtySince, backedUp } = backupMeta;
     const snap = store.write('before-import', { listings: items, categories, at: new Date().toISOString(), backup: { lastBackupAt, dirtySince, backedUp } });
@@ -1496,11 +1498,10 @@ async function onImportPicked(ev) {
       return;
     }
     const when = r.exportedAt ? formatBackupTime(r.exportedAt) : '';
-    const undoKept = store.read('before-import');
     const lines = [
       `파일: 매물 ${r.listings.length}개, 분류 ${r.categories.length}개${when ? ` (${when} 백업)` : ''}`,
       itemsUnreadable ? '지금: 저장된 매물을 읽지 못하는 상태예요. 바꾸면 그 값은 사라져요.' : `지금: 매물 ${items.length}개, 분류 ${categories.length}개`,
-      `지금 내용을 파일 내용으로 바꿀까요?${undoKept.ok && undoKept.data?.listings ? lostWarning() : ''}`,
+      '지금 내용을 파일 내용으로 바꿀까요?',
     ];
     askConfirm(lines.join('\n'), '바꾸기', '취소', () => applyImport(r));
   } catch (e) {
@@ -1510,7 +1511,7 @@ async function onImportPicked(ev) {
   }
 }
 
-// 가져온 뒤 바꾼 내용이 사라질 때의 경고. 되돌리기 자료가 이미 있으면 지금 내용은 어디에도 남지 않습니다.
+// 되돌릴 때의 경고. 되돌리면 가져온 뒤 바꾼 내용은 어디에도 남지 않습니다.
 // 백업과의 차이(pendingChanges)는 백업하면 0이 되므로, 건수는 가져온 내용과 비교합니다. 옛 자료에는 그 지문이 없습니다.
 function lostWarning() {
   const since = backupMeta.imported ? countChanges(backupMeta.imported, { listings: items, categories }) : pendingChanges;

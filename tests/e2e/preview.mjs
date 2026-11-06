@@ -1448,8 +1448,15 @@ try {
       expect(s, '되돌리기: 가져온 뒤 넣고 백업했어도 사라진다고 알림', (await text(page, '#modalText')).includes('1건이 이 폰에서 사라져요'));
       await page.click('#modalNo');
       await pickFile(page, FILE);
-      expect(s, '또 가져오기: 가져온 뒤 바꾼 건수가 사라진다고 알림', (await text(page, '#modalText')).includes('1건이 이 폰에서 사라져요'));
-      await page.click('#modalNo');
+      // 재발 방지(2026-11-06): 가져온 뒤 쓰던 내용이 또 가져올 때 사라져 맨 처음 내용으로만 돌아가던 문제
+      expect(s, '또 가져오기: 쓰던 내용은 되돌리기로 돌아오니 사라진다는 경고 없음', !(await text(page, '#modalText')).includes('사라져요'));
+      await page.click('#modalYes');
+      await wait(60);
+      await page.click('#undoImport');
+      await wait(30);
+      await page.click('#modalYes');
+      await wait(60);
+      expect(s, '또 가져오기: 가져온 뒤 바꿨으면 되돌리기는 그 직전 내용으로', (await stored(page)).some((x) => x.name === '가져온 뒤 저장한 약국'));
 
       // 비교 기준이 없는 옛 되돌리기 자료(1105g·1105h)
       await seed({ listings: { items: [A] }, 'before-import': { listings: [B], categories: [], backup: { lastBackupAt: OLD_BACKUP, dirtySince: null, pending: 0 } }, 'backup-meta': CLEAN });
