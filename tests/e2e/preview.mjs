@@ -1010,6 +1010,8 @@ try {
       await wait(60);
       const d = await lastDownload(page);
       expect(s, '파일로 바로 저장: 파일이 생기고 UTF-8, BOM 없음', !!d && /\.json$/.test(d.name) && d.first === 0x7b && d.text.includes('임대'), JSON.stringify(d?.name));
+      await page.click('#modalYes');
+      await wait(40);
       const backupText = f.text;
       // 잘못된 파일
       const before = await page.evaluate(() => localStorage.getItem('imjang-map:listings'));
@@ -1507,6 +1509,52 @@ try {
       await appReady(page);
       await fillAndSave(page, { name: '사파리 약국' });
       expect(s, '앱이 아니면 저장 안내는 토스트만', (await text(page, '#toast')) === '저장했어요.' && !(await visible(page, '#modal')));
+      await context.close();
+    }
+    {
+      // 재발 방지(2026-11-06): 저장됐는지 모르는데 백업한 것으로 쳐서 알림이 꺼지던 문제
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', realNudge: true, init: [asApp, hookDownload] }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await page.evaluate((old) => {
+        const put = (k, data) => localStorage.setItem(`imjang-map:${k}`, JSON.stringify({ schemaVersion: 1, data }));
+        put('listings', { items: [{ id: 'a', name: '가짜 약국', lat: null, lng: null, createdAt: old }] });
+        put('backup-meta', { lastBackupAt: old, dirtySince: old, backedUp: { listings: {}, categories: '' }, introSeen: true });
+      }, new Date(Date.now() - 86400000).toISOString());
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      await openBackup(page);
+      await page.click('#downloadBtn');
+      await wait(60);
+      expect(s, '파일로 바로 저장: 저장됐는지 물음', await visible(page, '#modal') && (await text(page, '#modalText')).includes('진짜 저장되었는지'));
+      expect(s, '파일로 바로 저장: 답하기 전에는 백업으로 치지 않음', (await text(page, '#backupWhen')) === '백업 전 1건');
+      await shot(page, 'w-download-ask');
+      await page.click('#modalNo');
+      await wait(40);
+      expect(s, '파일로 바로 저장: 아직이면 백업 전 그대로이고 다시 누르라고 알림', (await text(page, '#backupWhen')) === '백업 전 1건' && (await text(page, '#backupMsg')).includes('다시 눌러'));
+      await page.click('#downloadBtn');
+      await wait(60);
+      await page.click('#modalYes');
+      await wait(40);
+      expect(s, '파일로 바로 저장: 저장됐다고 답하면 백업으로 침', !(await text(page, '#backupWhen')).startsWith('백업 전') && (await text(page, '#backupMsg')).includes('백업했어요'));
+      await context.close();
+    }
+    {
+      // 재발 방지(2026-11-06): 지워지기 쉬운 사파리·카톡 안에서는 7일 알림이 아예 안 뜨던 문제
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', realNudge: true }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await page.evaluate((old) => {
+        const put = (k, data) => localStorage.setItem(`imjang-map:${k}`, JSON.stringify({ schemaVersion: 1, data }));
+        put('listings', { items: [{ id: 'a', name: '가짜 약국', lat: null, lng: null, createdAt: old }] });
+        put('backup-meta', { lastBackupAt: old, dirtySince: old, backedUp: { listings: {}, categories: '' }, introSeen: true });
+      }, new Date(Date.now() - 8 * 86400000).toISOString());
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      await wait(60);
+      expect(s, '사파리: 안내 카드가 떠 있는 동안에는 알림을 띄우지 않음', await visible(page, '#placeNotice') && !(await visible(page, '#backupNudge')));
+      await page.click('#noticeClose');
+      await wait(40);
+      expect(s, '사파리: 안내 카드를 닫으면 7일 알림이 뜨고 지워질 위험을 말함', await visible(page, '#backupNudge') && (await text(page, '#nudgeText')).includes('지워질 위험'));
+      await shot(page, 'w-nudge-safari');
       await context.close();
     }
     {

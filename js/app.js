@@ -1368,9 +1368,13 @@ function downloadFile(text, fileName) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
-  exported();
-  // 저장 창에서 취소했는지는 앱이 알 수 없어요.
-  backupSay(`파일로 내보냈어요. ${fileName} 이 저장됐는지 확인해 주세요.`, 'ok');
+  // 저장 창에서 취소했는지 앱이 알 수 없어서, 저장됐다고 답할 때만 백업으로 칩니다.
+  const count = items.length;
+  backupSay('파일이 저장되지 않았으면 다시 눌러 주세요.');
+  askConfirm('파일이 진짜 저장되었는지 확인해주세요.', '저장됐어요', '아직이에요', () => {
+    exported();
+    backupSay(`백업했어요. 매물 ${count}개가 파일에 들어 있어요.`, 'ok');
+  }, { recommend: true });
 }
 
 // 공유 창은 눌렀을 때 바로 열어야 해서, 이 함수 안에서는 기다리는 일을 하지 않습니다.
@@ -1543,9 +1547,9 @@ function onUndoImport() {
 }
 
 function checkReminder() {
-  if (PLACE !== 'app') return;
+  if (!$('placeNotice').hidden) return; // 사파리·카톡 안내 카드를 닫은 뒤에 띄웁니다.
   if (!needsReminder({ count: items.length, dirtySince: backupMeta.dirtySince, lastBackupAt: backupMeta.lastBackupAt, now: new Date() })) return;
-  $('nudgeText').textContent = `${REMIND_DAYS}일 넘게 백업하지 않았고, 바뀐 내용이 ${pendingChanges}건 있어요. 폰을 잃거나 바꾸면 되살릴 수 없어요.`;
+  $('nudgeText').textContent = `${REMIND_DAYS}일 넘게 백업하지 않았고, 바뀐 내용이 ${pendingChanges}건 있어요. ${PLACE === 'app' ? '' : '여기 저장된 내용은 지워질 위험이 있어요. '}폰을 잃거나 바꾸면 되살릴 수 없어요.`;
   $('backupNudge').hidden = false;
 }
 
@@ -1617,7 +1621,10 @@ function showPlaceNotice() {
   const text = PLACE === 'kakao' ? kakaoInappMessage(navigator.userAgent) : standaloneHelp(PLACE);
   $('placeHelp').textContent = text;
   $('placeNotice').hidden = false;
-  $('noticeClose').addEventListener('click', () => { $('placeNotice').hidden = true; });
+  $('noticeClose').addEventListener('click', () => {
+    $('placeNotice').hidden = true;
+    checkReminder();
+  });
 }
 
 function loadItems() {
@@ -1791,9 +1798,9 @@ if (!backupMeta.backedUp && backupMeta.lastBackupAt && !backupMeta.dirtySince &&
   saveBackupMeta();
 }
 compareWithBackup();
+showPlaceNotice();
 checkReminder();
 askPersist();
-showPlaceNotice();
 renderCategoryUi();
 renderDraftLocation();
 renderLocationTools();
