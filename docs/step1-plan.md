@@ -577,7 +577,7 @@ window.navigator.standalone === true || window.matchMedia('(display-mode: standa
 - `step1` 브랜치 사용
 - 180일 위험, 신호 없을 때 위험
 - 시험 파일과 진짜 백업의 구분
-- `Firebase 코드는 커밋 7765b04까지 있음`
+- `Firebase 코드는 커밋 c29fb58까지 있음`
 
 **재발 방지 4줄** (고치는 커밋에 같이)
 - 문서 세로 스크롤
