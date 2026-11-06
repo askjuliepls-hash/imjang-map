@@ -150,7 +150,7 @@ export function backupPrint({ listings, categories }) {
 
 // 마지막 백업과 달라진 매물 수. 매물은 그대로이고 분류만 바뀌었으면 1건입니다.
 export function countChanges(base, { listings, categories }) {
-  if (listings.length === 0) return 0; // 매물이 없으면 내보낼 것도 없습니다.
+  if (listings.length === 0) return 0; // 매물이 없으면 내보낼 수 없어 세지 않습니다. 분류만 바뀌어도 마찬가지입니다.
   const now = backupPrint({ listings, categories });
   const was = base?.listings ?? {};
   const ids = new Set(Object.keys(now.listings));

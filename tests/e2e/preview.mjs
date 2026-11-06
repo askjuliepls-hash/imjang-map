@@ -1239,7 +1239,7 @@ try {
       await page.click('#modalYes');
       await wait(60);
       await page.click('#undoImport');
-      expect(s, '처음 순서: 백업 직후 되돌리면 사라질 변경이 없다고 나옴', !(await text(page, '#modalText')).includes('사라지고'));
+      expect(s, '처음 순서: 백업 직후 되돌리면 사라질 변경이 없다고 나옴', !(await text(page, '#modalText')).includes('사라져요'));
       await page.click('#modalYes');
       await wait(60);
       expect(s, '처음 순서: 끝에 백업 날짜가 보임', await isDate());
@@ -1336,6 +1336,11 @@ try {
       await page.click('#modalYes');
       await wait(60);
       expect(s, '내용 비교: 매물을 다 지우면 내보낼 게 없으니 점이 없음', await dotOff());
+      // 재발 방지(2026-11-06): 다 지운 뒤 새로 넣으면 지운 매물까지 세던 문제
+      await goTab(page, 'map');
+      await fillAndSave(page, { name: '지운 뒤 새 약국' });
+      await page.click('#modalNo');
+      expect(s, '내용 비교: 다 지운 뒤 하나 넣으면 1건', (await when()) === '백업 전 1건');
       expect(s, '스크립트 오류 없음(내용 비교)', errors.length === 0, errors.join(' | '));
       await context.close();
     }
@@ -1387,7 +1392,7 @@ try {
       await openBackup(page);
       await importFile();
       await page.click('#undoImport');
-      expect(s, '되돌리기: 가져온 뒤 바꾼 게 없으면 경고 없음', !(await text(page, '#modalText')).includes('사라지고'));
+      expect(s, '되돌리기: 가져온 뒤 바꾼 게 없으면 경고 없음', !(await text(page, '#modalText')).includes('사라져요'));
       await page.click('#modalYes');
       await wait(60);
       expect(s, '되돌리기: 달라져 있던 2건이 그대로 돌아옴', (await text(page, '#backupWhen')) === '백업 전 2건' && (await text(page, '#backupLast')).includes('변경 2건'));
@@ -1405,7 +1410,7 @@ try {
       await page.click('#modalNo');
       await openBackup(page);
       await page.click('#undoImport');
-      expect(s, '되돌리기: 가져온 뒤 바꾼 건수가 사라진다고 미리 알림', (await text(page, '#modalText')).includes('1건은 사라지고'));
+      expect(s, '되돌리기: 가져온 뒤 바꾼 건수가 사라진다고 미리 알림', (await text(page, '#modalText')).includes('1건이 이 폰에서 사라져요'));
       await shot(page, 'w-undo-warn');
       await page.click('#modalNo');
       expect(s, '되돌리기: 취소하면 그 매물이 그대로', (await rawListings()).includes('가져온 뒤 저장한 약국') && await visible(page, '#undoImport'));
@@ -1420,6 +1425,31 @@ try {
       await page.click('#modalYes');
       await wait(60);
       expect(s, '되돌리기: 그 뒤 백업했으면 그 파일과 비교하고 날짜는 안 돌아감', (await text(page, '#backupWhen')) === '백업 전 3건' && !(await text(page, '#backupLast')).includes('2026.10.01'));
+
+      // 재발 방지(2026-11-06): 되돌리지 않고 또 가져오면 처음 내용으로 돌아갈 길이 사라지던 문제
+      await seed({ listings: { items: [A] }, 'backup-meta': CLEAN });
+      await openBackup(page);
+      await importFile();
+      await importFile();
+      expect(s, '되돌리기: 두 번 가져와도 처음 가져오기 전 내용으로', (await text(page, '#undoImport')).includes('(1개)'));
+
+      // 재발 방지(2026-11-06): 가져온 뒤 넣고 백업한 매물이 경고 없이 사라지던 문제
+      await seed({ listings: { items: [A] }, 'backup-meta': CLEAN });
+      await openBackup(page);
+      await importFile();
+      await page.click('#backupClose');
+      await goTab(page, 'map');
+      await fillAndSave(page, { name: '가져온 뒤 저장한 약국' });
+      await page.click('#modalNo');
+      await openBackup(page);
+      await page.click('#exportBtn');
+      await wait(120);
+      await page.click('#undoImport');
+      expect(s, '되돌리기: 가져온 뒤 넣고 백업했어도 사라진다고 알림', (await text(page, '#modalText')).includes('1건이 이 폰에서 사라져요'));
+      await page.click('#modalNo');
+      await pickFile(page, FILE);
+      expect(s, '또 가져오기: 가져온 뒤 바꾼 건수가 사라진다고 알림', (await text(page, '#modalText')).includes('1건이 이 폰에서 사라져요'));
+      await page.click('#modalNo');
 
       // 비교 기준이 없는 옛 되돌리기 자료(1105g·1105h)
       await seed({ listings: { items: [A] }, 'before-import': { listings: [B], categories: [], backup: { lastBackupAt: OLD_BACKUP, dirtySince: null, pending: 0 } }, 'backup-meta': CLEAN });
