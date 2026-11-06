@@ -222,7 +222,7 @@ function placeButton(p, onPick) {
 function placeHint() {
   const li = document.createElement('li');
   li.className = 'place-hint';
-  li.textContent = "못 찾으면 '성남 가짜약국'처럼 지역을 같이 적어 보세요.";
+  li.textContent = "못 찾으면 '성남 ○○약국'처럼 지역을 같이 적어 보세요.";
   return li;
 }
 
