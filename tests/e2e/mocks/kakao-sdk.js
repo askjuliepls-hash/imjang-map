@@ -100,7 +100,7 @@
     setTimeout(function () {
       if (window.__mockNoAddress) { cb([], Status.ZERO_RESULT); return; }
       cb([{ road_address: { address_name: '경기도 성남시 중원구 가짜대로 10' }, address: { address_name: '경기 성남시 중원구 가짜동 3' } }], Status.OK);
-    }, 20);
+    }, window.__mockAddressDelay || 20);
   };
   Places.prototype.keywordSearch = function (q, cb, options) {
     var self = this;

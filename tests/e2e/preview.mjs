@@ -1694,6 +1694,155 @@ try {
     }
   });
 
+  // V. 말없이 사라지거나 바뀌는 값 (재발 방지 2026-11-06)
+  await scenario('V 값 지키기', async (s) => {
+    const heldGps = () => {
+      navigator.geolocation.getCurrentPosition = (ok) => {
+        window.__gpsAnswer = () => ok({ coords: { latitude: 37.1, longitude: 127.1, accuracy: 9 } });
+      };
+    };
+    const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: [asApp, heldGps] }, s);
+    await page.goto(BASE, { waitUntil: 'load' });
+    await page.evaluate(() => {
+      const base = { lat: 37.2, lng: 127.2, createdAt: '2026-01-01T00:00:00.000Z' };
+      localStorage.setItem('imjang-map:listings', JSON.stringify({ schemaVersion: 1, data: { items: [
+        { ...base, id: 'a', name: '가짜 약국 가', areaExclusive: '33.33', deposit: '5000', address: '서울 중구 가짜대로 1', region: '서울 중구' },
+        { ...base, id: 'b', name: '가짜 약국 나', address: '서울 중구 가짜대로 2', region: '을지로쪽' },
+      ] } }));
+    });
+    await page.goto(BASE, { waitUntil: 'load' });
+    await appReady(page);
+    await page.waitForSelector('#locSearchBtn:not([disabled])', { timeout: 3000 });
+    const edit = async (name) => {
+      await goTab(page, 'list');
+      await page.$$eval('#list button', (bs, n) => bs.find((b) => b.textContent.includes(n)).click(), name);
+      await page.click('#editBtn');
+    };
+    const save = async () => { await page.click('#saveListing'); await wait(80); };
+    const leave = async () => {
+      await page.click('#formClose');
+      if (await visible(page, '#modal')) await page.click('#modalYes');
+    };
+    const one = async (id) => (await stored(page)).find((x) => x.id === id);
+    const val = (sel) => page.$eval(sel, (el) => el.value);
+    const selectAll = (sel) => page.$eval(sel, (el) => { el.focus(); el.select(); });
+
+    // F001: 늦게 온 현재 위치 답
+    await page.click('#addBtn');
+    await page.click('#locHereBtn');
+    await leave();
+    await edit('가짜 약국 가');
+    await page.evaluate(() => window.__gpsAnswer());
+    await wait(60);
+    await save();
+    const a = await one('a');
+    expect(s, '취소한 뒤 다른 매물을 고쳐도 늦은 현재 위치 답이 위치를 바꾸지 않음', a.lat === 37.2 && a.address === '서울 중구 가짜대로 1', `${a.lat} ${a.address}`);
+    await page.click('#addBtn');
+    await page.click('#locHereBtn');
+    await page.type('#locQ', '테스트 장소');
+    await page.keyboard.press('Enter');
+    await wait(180);
+    await page.click('#locResults button');
+    const chosen = await val('#f-address');
+    await page.evaluate(() => window.__gpsAnswer());
+    await wait(60);
+    expect(s, '장소를 고른 뒤 온 현재 위치 답이 고른 곳을 바꾸지 않음', chosen !== '' && (await val('#f-address')) === chosen && !(await text(page, '#locState')).includes('현재 위치'));
+    await leave();
+
+    // F036: 늦게 온 주소 답이 직접 쓴 글을 덮지 않음
+    await page.evaluate(() => { window.__mockAddressDelay = 400; });
+    await page.click('#addBtn');
+    await page.click('#locHereBtn');
+    await page.evaluate(() => window.__gpsAnswer());
+    await page.type('#f-address', '가짜시 직접 쓴 주소');
+    await wait(500);
+    expect(s, '늦은 주소 답이 직접 쓴 글을 덮거나 잠그지 않음', (await val('#f-address')) === '가짜시 직접 쓴 주소' && await page.$eval('#f-address', (el) => !el.readOnly));
+    await page.evaluate(() => { window.__mockAddressDelay = 0; });
+    await leave();
+
+    // F008: 평 칸의 읽을 수 없는 글자가 ㎡를 지우지 않음. 비우면 같이 비움
+    await edit('가짜 약국 가');
+    await selectAll('#p-areaExclusive');
+    await page.keyboard.sendCharacter('10평');
+    await save();
+    expect(s, '평 칸에 10평을 붙여 넣고 저장해도 ㎡가 남음', (await one('a')).areaExclusive === '33.33', (await one('a')).areaExclusive);
+    await edit('가짜 약국 가');
+    await selectAll('#p-areaExclusive');
+    await page.keyboard.press('Backspace');
+    expect(s, '평 칸을 비우면 ㎡도 비움', (await val('#f-areaExclusive')) === '');
+    await leave();
+
+    // F011: 주소 칸에 적은 글이 저장되고, 다시 저장해도 남음
+    await page.click('#addBtn');
+    await page.type('#f-name', '가짜 약국 다');
+    await page.type('#locQ', '가짜시 가짜구 손글씨로 3');
+    await save();
+    const typed = async () => (await stored(page)).find((x) => x.name === '가짜 약국 다')?.address;
+    const first = await typed();
+    await edit('가짜 약국 다');
+    await save();
+    expect(s, '주소 칸에 적은 글이 주소로 저장되고 다시 저장해도 남음', first === '가짜시 가짜구 손글씨로 3' && (await typed()) === first, `${first} / ${await typed()}`);
+
+    // F079: 엔터는 저장하지 않고, 저장하기 버튼만 저장함
+    await edit('가짜 약국 가');
+    await selectAll('#f-deposit');
+    await page.keyboard.type('70');
+    await page.keyboard.press('Enter');
+    await wait(60);
+    const afterEnter = (await one('a')).deposit;
+    const formOpen = await visible(page, '#formScreen');
+    expect(s, '엔터로 저장되거나 양식이 닫히지 않음', afterEnter === '5000' && formOpen, `${afterEnter} ${formOpen}`);
+    if (formOpen) await save();
+    expect(s, '저장하기 버튼은 저장함', (await one('a')).deposit === '70');
+
+    // F023: 자동으로 채운 지역은 새 주소를 따라가고, 직접 적은 지역은 남음
+    const repick = async () => {
+      await page.click('#locClear');
+      await page.type('#locQ', '테스트 장소');
+      await page.keyboard.press('Enter');
+      await wait(180);
+      await page.click('#locResults button');
+      await save();
+    };
+    await edit('가짜 약국 가');
+    await repick();
+    expect(s, '주소를 바꾸면 자동으로 채운 지역이 따라감', !['', '서울 중구'].includes((await one('a')).region), (await one('a')).region);
+    await edit('가짜 약국 나');
+    await repick();
+    expect(s, '주소를 바꿔도 직접 적은 지역은 남음', (await one('b')).region === '을지로쪽', (await one('b')).region);
+
+    // F010: 두 번 빠르게 누르면 두 번째 탭은 방금 열린 화면에 눌리지 않음
+    await page.evaluate(() => {
+      window.__tapCount = 0;
+      document.addEventListener('click', () => { window.__tapCount += 1; });
+    });
+    const doubleTap = async (sel) => {
+      const b = await (await page.$(sel)).boundingBox();
+      await page.evaluate(() => { window.__tapCount = 0; });
+      await page.touchscreen.tap(b.x + b.width - 8, b.y + b.height / 2);
+      await wait(50);
+      await page.touchscreen.tap(b.x + b.width - 8, b.y + b.height / 2);
+      await wait(60);
+      return page.evaluate(() => window.__tapCount);
+    };
+    await goTab(page, 'list');
+    await page.$$eval('#list button', (bs) => bs.find((b) => b.textContent.includes('가짜 약국 가')).click());
+    const countBefore = (await stored(page)).length;
+    const deleteTaps = await doubleTap('#deleteBtn');
+    expect(s, '삭제하기를 두 번 눌러도 확인 창은 그대로 있고 안 지워짐', deleteTaps === 1 && await visible(page, '#modal') && (await stored(page)).length === countBefore, `탭 ${deleteTaps}`);
+    await page.click('#modalNo');
+    await page.click('#detailClose');
+    await page.click('#sortBtn');
+    await page.click('#datePick');
+    await wait(400);
+    const monthBefore = await text(page, '#calTitle');
+    const calTaps = await doubleTap('#calPrev');
+    expect(s, '화면이 안 바뀌는 버튼은 두 번 누르면 두 번 됨', calTaps === 2 && (await text(page, '#calTitle')) !== monthBefore, `탭 ${calTaps}`);
+    await page.click('#calClose');
+    expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
+    await context.close();
+  });
+
   expect('전체', '모든 화면에서 스크립트 오류 없음', runErrors.length === 0, runErrors.join(' | '));
 } finally {
   await browser.close();

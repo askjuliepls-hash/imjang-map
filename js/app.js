@@ -13,7 +13,7 @@ import {
 import { toPyeong, fromPyeong } from './lib/format.js';
 import {
   FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint,
-  detailGroups, regionFromAddress, createListingStore, makeListingId, groupByVisitDate, groupByRegion, listingFacts, regionOf,
+  detailGroups, regionFromAddress, regionIsFromAddress, createListingStore, makeListingId, groupByVisitDate, groupByRegion, listingFacts, regionOf,
   sideLabel, shortVisitDate, monthCells, visitDates,
 } from './lib/listings.js';
 import {
@@ -607,7 +607,13 @@ function areaInput(f) {
   const m2 = part(`f-${f.key}`, f.key, '㎡', `${f.label} ㎡`);
   const py = part(`p-${f.key}`, '', '평', `${f.label} 평`);
   m2.addEventListener('input', () => { py.value = toPyeong(m2.value); });
-  py.addEventListener('input', () => { m2.value = fromPyeong(py.value); });
+  py.addEventListener('input', () => {
+    const v = fromPyeong(py.value);
+    // 읽을 수 없는 글자면 ㎡는 그대로 둡니다. 칸을 비웠을 때만 같이 비웁니다.
+    if (v || !py.value.trim()) m2.value = v;
+  });
+  // 칸을 떠날 때 읽을 수 없는 글자는 ㎡에 맞춰 되돌립니다.
+  py.addEventListener('change', () => { if (!fromPyeong(py.value)) py.value = toPyeong(m2.value); });
   box.append(label, pair);
   return box;
 }
@@ -747,9 +753,12 @@ function applyAddress(road, jibun) {
 }
 
 function fillAddressFromCoord(lat, lng, keepClean = false) {
+  const before = $('f-address').value;
   lookupAddress(lat, lng, (r) => {
     // 그사이 다른 곳을 찍었으면 늦게 온 답은 버립니다.
     if (draftLocation?.lat !== lat || draftLocation?.lng !== lng) return;
+    // 그사이 주소 칸에 직접 적었으면 그 글을 지킵니다.
+    if ($('f-address').value !== before) return;
     const wasDirty = formDirty;
     if (r) {
       applyAddress(r.road, r.jibun);
@@ -763,13 +772,18 @@ function fillAddressFromCoord(lat, lng, keepClean = false) {
   });
 }
 
+// 현재 위치를 묻는 동안 위치를 다르게 정하거나 양식을 새로 열면 늦게 온 답은 버립니다.
+let locHereTicket = 0;
+
 function setDraftLocation(lat, lng, label = '') {
+  locHereTicket += 1;
   draftLocation = { lat, lng, label };
   formDirty = true;
   renderDraftLocation();
 }
 
 function openForm(item = null) {
+  locHereTicket += 1;
   editingId = item?.id ?? null;
   $('formTitle').textContent = item ? '매물 수정' : '매물 추가';
   const form = $('listingForm');
@@ -790,12 +804,13 @@ function openForm(item = null) {
   form.elements.address.value = item?.address ?? '';
   form.elements.address.readOnly = !!item?.address;
   form.elements.address.placeholder = '';
-  autoRegion = null;
+  autoRegion = item && regionIsFromAddress(item.region, item.address) ? item.region : null;
   draftLocation = item && isLocated(item) ? { lat: item.lat, lng: item.lng, label: '' } : null;
   renderDraftLocation();
   // 주소 기능을 넣기 전에 저장한 매물은 위치만 있으니 이때 채워 줍니다.
   if (draftLocation && !item.address) fillAddressFromCoord(item.lat, item.lng, true);
-  $('locQ').value = '';
+  // 위치 없이 주소만 있는 매물은 검색 칸에 주소를 보여 줍니다. 저장할 때 이 칸을 주소로 읽습니다.
+  $('locQ').value = draftLocation ? '' : (item?.address ?? '');
   $('formMsg').hidden = true;
   $('nameError').hidden = true;
   formDirty = false;
@@ -840,8 +855,7 @@ function showFormMsg(text) {
   el.scrollIntoView({ block: 'nearest' });
 }
 
-function onSaveListing(ev) {
-  ev.preventDefault();
+function onSaveListing() {
   // 이 기기에 오래 남도록 부탁합니다. 사파리에서 사용자에게 뜨는 창은 없어요.
   try {
     navigator.storage?.persist?.()?.catch?.(() => {});
@@ -850,6 +864,7 @@ function onSaveListing(ev) {
   raw.categoryId = draftCategoryId;
   raw.lat = draftLocation?.lat;
   raw.lng = draftLocation?.lng;
+  if (!draftLocation) raw.address = $('locQ').value; // 고르지 않고 적어 둔 글은 주소로 지킵니다.
   const r = cleanForm(raw);
   if (!r.ok) {
     // 칸으로 옮겨 가므로 안내도 그 칸 바로 아래에 둡니다.
@@ -877,6 +892,8 @@ function onSaveListing(ev) {
 function onLocSearch() {
   const q = $('locQ').value.trim();
   if (!q || !kakao) return;
+  locHereTicket += 1;
+  $('locState').textContent = '';
   document.activeElement?.blur?.();
   searchPlaces(q, (r) => {
     const ul = $('locResults');
@@ -901,13 +918,15 @@ function onLocSearch() {
 }
 
 function onLocHere() {
+  const ticket = ++locHereTicket;
   $('locState').textContent = '위치를 찾는 중이에요. 권한을 물으면 허용해 주세요.';
   getPosition(
     (c) => {
+      if (ticket !== locHereTicket) return;
       setDraftLocation(c.latitude, c.longitude, `현재 위치 (오차 약 ${Math.round(c.accuracy)}m)`);
       fillAddressFromCoord(c.latitude, c.longitude);
     },
-    (msg) => { $('locState').textContent = msg; },
+    (msg) => { if (ticket === locHereTicket) $('locState').textContent = msg; },
   );
 }
 
@@ -920,6 +939,8 @@ let pickReturnTab = 'map';
 
 function onLocMap() {
   if (!map) return;
+  locHereTicket += 1;
+  if (!draftLocation) $('locState').textContent = '';
   picking = true;
   pickReturnTab = tab;
   setTab('map');
@@ -1591,7 +1612,14 @@ $('modalYes').addEventListener('click', () => {
   closeModal();
   run?.();
 });
-$('listingForm').addEventListener('submit', onSaveListing);
+// 저장은 저장하기 버튼으로만 합니다. 키보드의 엔터는 키보드만 닫습니다. 검색칸은 아래에서 따로 처리합니다.
+$('saveListing').addEventListener('click', onSaveListing);
+$('listingForm').addEventListener('submit', (ev) => ev.preventDefault());
+$('listingForm').addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter' || ev.target.tagName !== 'INPUT' || ev.target.id === 'locQ') return;
+  ev.preventDefault();
+  ev.target.blur();
+});
 $('listingForm').addEventListener('input', () => { formDirty = true; });
 $('locSearchBtn').addEventListener('click', onLocSearch);
 $('locQ').addEventListener('keydown', (ev) => {
@@ -1603,6 +1631,7 @@ $('locQ').addEventListener('keydown', (ev) => {
 $('locHereBtn').addEventListener('click', onLocHere);
 $('locMapBtn').addEventListener('click', onLocMap);
 $('locClear').addEventListener('click', () => {
+  locHereTicket += 1;
   draftLocation = null;
   $('f-address').value = '';
   $('locQ').value = '';
@@ -1612,6 +1641,29 @@ $('locClear').addEventListener('click', () => {
   formDirty = true;
   renderDraftLocation();
 });
+// 두 번 빠르게 누르면 두 번째 탭이 방금 열린 화면에 눌립니다. 화면이 바뀐 직후 같은 자리를 누른 것은 버립니다.
+// 지도를 누른 것, 마우스 클릭(자동 점검이 기계 속도로 누름), 코드·키보드로 낸 클릭(detail 0)은 버리지 않습니다.
+let lastTap = { x: 0, y: 0 };
+let tapGuard = null;
+const overlayWatch = new MutationObserver((records) => {
+  // 값이 그대로인 쓰기(hidden = true를 또 하는 것)는 화면이 바뀐 게 아닙니다.
+  if (records.some((r) => (r.oldValue !== null) !== r.target.hasAttribute('hidden'))) {
+    tapGuard = { until: performance.now() + 350, ...lastTap };
+  }
+});
+for (const id of ['formScreen', 'detailScreen', 'backupScreen', 'catScreen', 'catModal', 'calModal', 'modal', 'sortMenu', 'backupNudge', 'placeCard', 'pinCard', 'results', 'locResults', 'pickBar']) {
+  overlayWatch.observe($(id), { attributes: true, attributeFilter: ['hidden'], attributeOldValue: true });
+}
+document.addEventListener('click', (ev) => {
+  if (ev.detail === 0 || ev.pointerType === 'mouse') return;
+  const near = tapGuard && performance.now() < tapGuard.until && Math.hypot(ev.clientX - tapGuard.x, ev.clientY - tapGuard.y) < 40;
+  if (near && !ev.target.closest('#map')) {
+    ev.stopPropagation();
+    ev.preventDefault();
+    return;
+  }
+  lastTap = { x: ev.clientX, y: ev.clientY };
+}, true);
 $('pickOk').addEventListener('click', () => endPick(true));
 $('pickCancel').addEventListener('click', () => endPick(false));
 $('detailClose').addEventListener('click', () => { $('detailScreen').hidden = true; });

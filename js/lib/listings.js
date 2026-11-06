@@ -209,6 +209,13 @@ export function regionFromAddress(address) {
   return w.slice(0, n).join(' ');
 }
 
+// 저장된 지역이 주소에서 자동으로 나온 값인지 봅니다. '경기'와 '경기도'는 같게 보려고 첫 낱말은 빼고 비교합니다.
+export function regionIsFromAddress(region, address) {
+  const rest = (s) => String(s ?? '').trim().split(/\s+/).slice(1).join(' ');
+  const r = rest(region);
+  return !!r && r === rest(regionFromAddress(address));
+}
+
 // 저장 묶음. 읽기에 실패하면 쓰지 않습니다. 읽지 못한 데이터를 빈 목록으로 덮어쓰면 모두 잃기 때문입니다.
 export function createListingStore(store, key = LISTINGS_KEY) {
   let blocked = null;

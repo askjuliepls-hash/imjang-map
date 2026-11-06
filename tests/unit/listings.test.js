@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   FIELD_GROUPS, cleanForm, upsertListing, removeListing, newestFirst, isLocated, summaryLine, fieldHint, detailGroups,
   formatVisitDate, groupByVisitDate, groupByRegion, regionOf, listingFacts, sideLabel, shortVisitDate, monthCells, visitDates,
-  regionFromAddress, createListingStore,
+  regionFromAddress, regionIsFromAddress, createListingStore,
 } from '../../js/lib/listings.js';
 import { createStore, KEY_PREFIX } from '../../js/lib/store.js';
 import { formatManwon, toPyeong, fromPyeong } from '../../js/lib/format.js';
@@ -240,4 +240,12 @@ test('읽지 못한 값은 확인 뒤 교체할 때만 덮는다', () => {
   ls.unblock();
   assert.equal(ls.save([{ id: 'x' }]).ok, true);
   assert.deepEqual(ls.load().items, [{ id: 'x' }]);
+});
+
+test('regionIsFromAddress: 첫 낱말 표기가 달라도 자동 지역으로 보고, 직접 적은 지역은 아니라고 봄', () => {
+  assert.equal(regionIsFromAddress('서울 중구', '서울특별시 중구 가짜대로 1'), true);
+  assert.equal(regionIsFromAddress('경기 성남시 중원구', '경기도 성남시 중원구 가짜대로 10'), true);
+  assert.equal(regionIsFromAddress('을지로쪽', '서울 중구 가짜대로 1'), false);
+  assert.equal(regionIsFromAddress('서울 중구', ''), false);
+  assert.equal(regionIsFromAddress('', '서울 중구 가짜대로 1'), false);
 });
