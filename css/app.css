@@ -571,7 +571,7 @@ button.set-row { width: 100%; padding: 0; border: 0; background: none; color: va
 .listing .meta { font-size: 14px; color: var(--ink-3); }
 .facts { display: flex; flex-wrap: wrap; gap: 2px 12px; }
 .fact { font-size: 14px; color: var(--ink-3); white-space: nowrap; }
-.fact b { margin-left: 4px; font-weight: 600; color: var(--ink); }
+.fact b { margin-left: 4px; font-weight: 600; color: var(--ink); white-space: normal; }
 
 /* 양식과 상세: 지도 위에 온전히 덮는 화면 */
 .screen {

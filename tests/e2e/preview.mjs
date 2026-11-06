@@ -27,6 +27,15 @@ const results = [];
 function expect(scenario, what, ok, detail = '') {
   results.push({ scenario, what, ok: !!ok, detail });
 }
+// 재발 방지(2026-11-06): 페이지마다 스스로 오류를 확인해야 해서 안 보던 화면이 많았습니다. 실행 전체를 한 목록으로 모아 끝에서 봅니다.
+const runErrors = [];
+function watchErrors(page, scenario, errors, mode = {}) {
+  page.on('pageerror', (e) => {
+    const message = String(e.message || e);
+    errors.push(message);
+    if (!mode.expectErrors) runErrors.push(`[${scenario}] ${message}`);
+  });
+}
 
 // ---------- 정적 서버 (GitHub Pages처럼 /imjang-map/ 아래에서 제공) ----------
 const server = http.createServer(async (req, res) => {
@@ -90,7 +99,8 @@ const interceptFor = (mode, requests = []) => (req) => {
 };
 
 // mode: kakao 'mock' | '503' | 'block', config 'mock' | 'empty' | 'real' | 'broken',
-//       abort 요청 경로에 대한 정규식(모듈 실패 흉내), init 페이지마다 먼저 실행할 함수(들), ua, viewport
+//       abort 요청 경로에 대한 정규식(모듈 실패 흉내), init 페이지마다 먼저 실행할 함수(들), ua, viewport,
+//       expectErrors 일부러 스크립트 오류를 내는 시험이면 true(실행 전체 오류 목록에서 뺌)
 async function openPage(browser, mode, scenario) {
   const context = await browser.createBrowserContext();
   await context.overridePermissions(ORIGIN, ['geolocation']);
@@ -101,7 +111,7 @@ async function openPage(browser, mode, scenario) {
   if (!mode.realNudge) await page.evaluateOnNewDocument(quietNudge);
   for (const f of [].concat(mode.init || [])) await page.evaluateOnNewDocument(f);
   const errors = [];
-  page.on('pageerror', (e) => errors.push(String(e.message || e)));
+  watchErrors(page, scenario, errors, mode);
   const requests = [];
   await page.setRequestInterception(true);
   page.on('request', interceptFor(mode, requests));
@@ -110,20 +120,25 @@ async function openPage(browser, mode, scenario) {
 
 async function layout(page) {
   return page.evaluate(() => {
-    const vw = window.innerWidth;
     const visibleInputs = [...document.querySelectorAll('input')].filter((i) => i.offsetParent !== null);
     const small = visibleInputs.filter((i) => parseFloat(getComputedStyle(i).fontSize) < 16).map((i) => i.id);
     const clipped = [...document.querySelectorAll('.listing strong, .btn, .fill-btn, .score, .results strong, .results span, .fab, .form-msg, .next-help, .row p, .list-head span, .view-tabs button, .listing .meta, .fact, .side, .set-label, .set-note, .set-value, #barTitle')]
       .filter((el) => el.offsetParent !== null && el.scrollWidth > el.clientWidth + 1)
       .map((el) => `${el.className}:${el.textContent.trim().slice(0, 16)}`);
     const de = document.documentElement;
-    return { overflowX: de.scrollWidth > vw + 1, overflowY: de.scrollHeight > window.innerHeight + 1, docHeight: de.scrollHeight, small, clipped };
+    // 재발 방지(2026-11-06): 폰 화면에서는 innerWidth가 내용을 따라 늘어나 '가로 스크롤 없음'이 실패할 수 없었습니다. clientWidth와 비교합니다.
+    // 화면마다 스스로 스크롤해서 문서는 넓어지지 않으니 그 영역도 봅니다. #catChips는 일부러 옆으로 밀리는 칩이라 넣지 않습니다.
+    const sideways = [...document.querySelectorAll('.sheet, .settings, .screen-body, .stage')]
+      .filter((el) => el.getClientRects().length > 0 && el.scrollWidth > el.clientWidth + 1)
+      .map((el) => `${el.id || el.className}:${el.scrollWidth}>${el.clientWidth}`);
+    return { overflowX: de.scrollWidth > de.clientWidth + 1, overflowY: de.scrollHeight > window.innerHeight + 1, docHeight: de.scrollHeight, small, clipped, sideways };
   });
 }
 
 async function layoutExpect(page, scenario) {
   const l = await layout(page);
   expect(scenario, '가로 스크롤 없음', !l.overflowX);
+  expect(scenario, '영역 안 가로 넘침 없음', l.sideways.length === 0, l.sideways.join(', '));
   // 재발 방지(2026-11-05): 시트 안의 화면 밖 글자가 문서 전체를 늘려 페이지가 통째로 밀리던 문제
   expect(scenario, '세로 문서 스크롤 없음', !l.overflowY, `문서 높이 ${l.docHeight}`);
   expect(scenario, '입력칸 글씨 16px 이상(아이폰 확대 방지)', l.small.length === 0, l.small.join(', '));
@@ -131,14 +146,19 @@ async function layoutExpect(page, scenario) {
 }
 
 // 재발 방지(2026-11-05): 로그인·저장 버튼이 점검 목록 아래에 숨어 스크롤해야 보이던 문제
-// 재발 방지(2026-11-05): 창 안에 있어도 시트 스크롤 영역에 잘려 안 보이는 경우까지 잡습니다.
+// 재발 방지(2026-11-06): 예전에는 스크롤을 멈춘 .sheet-body와만 비교해서 탭 줄 뒤, 옆으로 밀림, 가려짐을 놓쳤습니다.
+// 창, 잘라 내는 바깥 상자 전부, 가운데 점을 실제로 누를 수 있는지를 봅니다.
 const inView = (page, sel) => page.$eval(sel, (el) => {
   const r = el.getBoundingClientRect();
-  if (r.height <= 0 || r.top < 0 || r.bottom > window.innerHeight) return false;
-  const box = el.closest('.sheet-body');
-  if (!box) return true;
-  const b = box.getBoundingClientRect();
-  return r.top >= b.top && r.bottom <= b.bottom;
+  const de = document.documentElement;
+  if (r.height <= 0 || r.width <= 0 || r.top < 0 || r.left < 0 || r.bottom > de.clientHeight || r.right > de.clientWidth) return false;
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const c = getComputedStyle(p);
+    if (!/auto|scroll|hidden|clip/.test(c.overflowX + c.overflowY)) continue;
+    const b = p.getBoundingClientRect();
+    if (r.top < b.top || r.bottom > b.bottom || r.left < b.left || r.right > b.right) return false;
+  }
+  return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
 });
 
 const inViewSoon = async (page, sel) => {
@@ -307,6 +327,8 @@ try {
     await page2.evaluateOnNewDocument(asApp);
     await page2.setRequestInterception(true);
     page2.on('request', interceptFor({ kakao: 'mock', config: 'mock' }));
+    // 재발 방지(2026-11-06): 아래의 '스크립트 오류 없음'이 이미 닫은 첫 페이지의 오류만 보던 문제
+    watchErrors(page2, s, errors);
     await page.close();
     await page2.goto(BASE, { waitUntil: 'load' });
     await appReady(page2);
@@ -485,7 +507,7 @@ try {
     await layoutExpect(page, s);
     const order = await page.evaluate(() => [...document.querySelectorAll('#list .fact')].slice(0, 4).map((f) => f.firstChild.textContent));
     expect(s, '금액은 권리금, 보증금, 월세, 예상 순수익 순', order.join() === '권리금,보증금,월세,예상 순수익', order.join());
-    const unbroken = await page.evaluate(() => [...document.querySelectorAll('#list .fact')].every((f) => f.getClientRects().length === 1 && getComputedStyle(f).whiteSpace === 'nowrap'));
+    const unbroken = await page.evaluate(() => [...document.querySelectorAll('#list .fact')].every((f) => f.querySelector('b').getClientRects().length === 1 && getComputedStyle(f).whiteSpace === 'nowrap'));
     // 재발 방지(2026-11-05): '예상 / 순수익 687만원'처럼 항목 중간에서 줄이 바뀌던 문제
     expect(s, '금액 항목이 중간에서 줄바꿈되지 않음', unbroken);
     expect(s, '이름 줄 오른쪽 끝에 지역이 보임', (await page.$eval('#list .side', (el) => el.textContent)).length > 0);
@@ -879,7 +901,7 @@ try {
       ['모듈 하나가 안 받아질 때', { abort: /\/js\/lib\/listings\.js$/ }],
       ['옛 파일과 새 파일이 섞일 때', { config: 'broken' }],
     ]) {
-      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', ...mode, init: fastTimers }, s);
+      const { context, page } = await openPage(browser, { kakao: 'mock', config: 'mock', ...mode, init: fastTimers, expectErrors: true }, s);
       await page.goto(BASE, { waitUntil: 'load' });
       const shown = await page.waitForFunction(() => {
         const m = document.getElementById('reloadMsg');
@@ -1238,7 +1260,8 @@ try {
         const items = Array.from({ length: 9 }, (_, i) => ({ id: `p${i}`, name: `약국 ${i}`, lat: null, lng: null, categoryId: i === 0 ? 'd' : null, createdAt: `2026-01-0${i + 1}T00:00:00.000Z` }));
         put('listings', { items });
         put('categories', { items: [{ id: 'c', name: '안 쓰는 분류', color: '#F96949' }, { id: 'd', name: '쓰는 분류', color: '#2F80ED' }] });
-        put('backup-meta', { lastBackupAt: null, dirtySince: '2026-11-05T01:00:00.000Z', pending: 11, introSeen: true }); // 사용자의 폰 상태
+        // 사용자의 폰 상태. 날짜를 고정하면 7일 뒤부터 알림이 떠서 다음 줄의 매물 추가를 가립니다.
+        put('backup-meta', { lastBackupAt: null, dirtySince: new Date(Date.now() - 24 * 3600 * 1000).toISOString(), pending: 11, introSeen: true });
       });
       await page.reload({ waitUntil: 'load' });
       await appReady(page);
@@ -1537,6 +1560,122 @@ try {
     await shot(page, 'j-detail-dark');
     await context.close();
   });
+
+  // T. 점검 도구 자체: 일부러 만든 문제를 정말 잡아내는지 봅니다. 못 잡으면 다른 점검의 통과도 믿을 수 없습니다.
+  await scenario('T 점검 도구', async (s) => {
+    const { context, page, errors } = await openPage(browser, { kakao: 'mock', config: 'mock', init: asApp }, s);
+    await page.goto(BASE, { waitUntil: 'load' });
+    await page.evaluate(() => {
+      const items = Array.from({ length: 14 }, (_, i) => ({ id: `r${i}`, name: `시험 약국 ${i}`, lat: null, lng: null, createdAt: '2026-01-01T00:00:00.000Z' }));
+      localStorage.setItem('imjang-map:listings', JSON.stringify({ schemaVersion: 1, data: { items } }));
+    });
+    await page.reload({ waitUntil: 'load' });
+    await appReady(page);
+    const inject = (css, parent = 'body') => page.evaluate((c, p) => {
+      const el = document.createElement('button');
+      el.id = 'probe';
+      el.style.cssText = c;
+      document.querySelector(p).append(el);
+    }, css, parent);
+    const removeProbe = () => page.evaluate(() => document.getElementById('probe').remove());
+
+    expect(s, '보이는 버튼은 보인다고 판정', await inView(page, '#addBtn'));
+    await inject('position:fixed;inset:0;z-index:999');
+    expect(s, '다른 것에 가려진 버튼은 안 보인다고 판정', !(await inView(page, '#addBtn')));
+    await removeProbe();
+    await inject('position:absolute;left:340px;top:100px;width:100px;height:40px;z-index:999', '.stage');
+    expect(s, '옆으로 밀려 잘린 버튼은 안 보인다고 판정', !(await inView(page, '#probe')));
+    expect(s, '영역 안에서 옆으로 넘치면 잡아냄', (await layout(page)).sideways.length > 0);
+    await removeProbe();
+    await inject('position:absolute;left:0;top:0;width:500px;height:1px');
+    expect(s, '문서가 옆으로 넓어지면 잡아냄', (await layout(page)).overflowX);
+    await removeProbe();
+
+    await goTab(page, 'list');
+    const row = await page.evaluate(() => {
+      const sheet = document.getElementById('sheet');
+      const edge = sheet.getBoundingClientRect().bottom;
+      const names = [...document.querySelectorAll('#list .listing strong')];
+      names[0].id = 'probeTop';
+      const el = names.find((n) => n.getBoundingClientRect().top >= edge);
+      el.id = 'probeRow';
+      // 줄 이름이 시트 아래 끝 바로 밑, 즉 창 안이면서 탭 줄 뒤에 오게 합니다.
+      sheet.scrollTop += el.getBoundingClientRect().top - edge - 8;
+      const r = el.getBoundingClientRect();
+      return { edge, top: r.top, bottom: r.bottom, h: innerHeight };
+    });
+    expect(s, '시험 준비: 줄이 창 안이면서 탭 줄 뒤에 있음', row.top >= row.edge && row.bottom <= row.h, JSON.stringify(row));
+    expect(s, '탭 줄 뒤에 숨은 줄은 안 보인다고 판정', !(await inView(page, '#probeRow')));
+    await page.$eval('#sheet', (el) => { el.scrollTop = 0; });
+    expect(s, '맨 위 줄은 보인다고 판정', await inView(page, '#probeTop'));
+    const before = runErrors.length;
+    await page.evaluate(() => { setTimeout(() => { throw new Error('점검 도구 시험 오류'); }); });
+    await wait(60);
+    expect(s, '일부러 낸 오류가 그 화면과 실행 전체 목록에 잡힘', errors.at(-1)?.includes('점검 도구 시험 오류') && runErrors.length === before + 1, errors.join(' | '));
+    runErrors.length = before; // 일부러 낸 오류라 맨 끝 점검에서 뺍니다.
+    await context.close();
+  });
+
+  // T2. 긴 글: 예상 순수익은 글자도 적을 수 있는 칸이라 긴 문장이 들어올 수 있습니다.
+  await scenario('T2 긴 글', async (s) => {
+    const LONG = '월 3000 정도 (약사 1인 기준, 컨설팅 업체 구두 설명으로 확실하지 않음)'; // 44자
+    const NO_SPACE = '띄어쓰기없이길게적은예상순수익메모입니다'.repeat(3).slice(0, 44);
+    for (const [width, height] of [[390, 664], [375, 667]]) {
+      const tag = `${s} ${width}`;
+      const { context, page, errors } = await openPage(browser, {
+        kakao: 'mock', config: 'mock', init: asApp,
+        viewport: { width, height, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+      }, s);
+      await page.goto(BASE, { waitUntil: 'load' });
+      await page.evaluate((long, noSpace) => {
+        const put = (k, data) => localStorage.setItem(`imjang-map:${k}`, JSON.stringify({ schemaVersion: 1, data }));
+        const mk = (id, name, netProfit, lat) => ({ id, name, netProfit, visitDate: '2026-11-03', region: '서울 중구', address: '테스트시 테스트구 가짜로 1', categoryId: 'c', lat, lng: 126.97, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' });
+        put('listings', { items: [mk('a', '띄어 쓴 긴 글 약국', long, 37.56), mk('b', '붙여 쓴 긴 글 약국', noSpace, 37.57), { ...mk('n', '보통 금액 약국', '1200', 37.58), premium: '15000', deposit: '5000', rent: '300' }] });
+        put('categories', { items: [{ id: 'c', name: '후보', color: '#F96949' }] });
+      }, LONG, NO_SPACE);
+      await page.reload({ waitUntil: 'load' });
+      await appReady(page);
+      await page.waitForSelector('.mock-marker', { timeout: 3000 });
+      await layoutExpect(page, `${tag} 지도`);
+      for (const i of [0, 1, 2]) {
+        await page.evaluate((n) => document.querySelectorAll('.mock-marker')[n].click(), i);
+        expect(tag, `핀 카드 ${i + 1}: 자세히 보기와 닫기가 화면 안에 보임`, await inView(page, '#pinOpen') && await inView(page, '#pinClose'));
+        const lines = await page.$$eval('#pinFacts b', (bs) => bs.map((b) => b.getClientRects().length));
+        if (i < 2) expect(tag, `핀 카드 ${i + 1}: 긴 글은 값 안에서 줄을 바꿈`, lines.length === 1 && lines[0] > 1, lines.join());
+        else expect(tag, '핀 카드 3: 보통 금액은 네 칸 모두 한 줄', lines.length === 4 && lines.every((n) => n === 1), lines.join());
+        await layoutExpect(page, `${tag} 핀 카드 ${i + 1}`);
+        if (width === 390 && i === 0) await shot(page, 't2-pin-long');
+        await page.click('#pinClose');
+      }
+      await goTab(page, 'list');
+      await layoutExpect(page, `${tag} 목록`);
+      const normal = await page.$$eval('#list .listing', (rows) => [...rows.find((r) => r.textContent.includes('보통 금액 약국')).querySelectorAll('.fact b')].map((b) => b.getClientRects().length));
+      expect(tag, '목록: 보통 금액은 네 칸 모두 한 줄', normal.length === 4 && normal.every((n) => n === 1), normal.join());
+      expect(tag, '목록: 분류별 탭과 정렬 버튼이 화면 안에 보임', await inView(page, '#viewTabs [data-view="category"]') && await inView(page, '#sortBtn'));
+      if (width === 390) await shot(page, 't2-list-long');
+      await page.click('#sortBtn');
+      await page.click('#datePick');
+      await layoutExpect(page, `${tag} 달력`);
+      await page.click('#calClose');
+      await openFirst(page);
+      await layoutExpect(page, `${tag} 상세`);
+      await page.click('#editBtn');
+      await layoutExpect(page, `${tag} 양식`);
+      await page.click('#formClose');
+      await goTab(page, 'settings');
+      await layoutExpect(page, `${tag} 설정`);
+      await page.click('#backupOpen');
+      await layoutExpect(page, `${tag} 백업`);
+      await page.click('#backupClose');
+      await page.click('#catManage');
+      await layoutExpect(page, `${tag} 분류`);
+      await page.click('#catScreenClose');
+      expect(tag, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
+      await context.close();
+    }
+  });
+
+  expect('전체', '모든 화면에서 스크립트 오류 없음', runErrors.length === 0, runErrors.join(' | '));
 } finally {
   await browser.close();
   server.close();
