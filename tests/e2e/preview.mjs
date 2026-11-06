@@ -128,7 +128,8 @@ async function layout(page) {
     const de = document.documentElement;
     // 재발 방지(2026-11-06): 폰 화면에서는 innerWidth가 내용을 따라 늘어나 '가로 스크롤 없음'이 실패할 수 없었습니다. clientWidth와 비교합니다.
     // 화면마다 스스로 스크롤해서 문서는 넓어지지 않으니 그 영역도 봅니다. #catChips는 일부러 옆으로 밀리는 칩이라 넣지 않습니다.
-    const sideways = [...document.querySelectorAll('.sheet, .settings, .screen-body, .stage')]
+    // 창은 position: fixed라 넘쳐도 어디로도 번지지 않습니다. .modal은 창이 화면보다 넓을 때, .modal-box는 내용이 흰 상자 밖으로 나갈 때 잡습니다.
+    const sideways = [...document.querySelectorAll('.sheet, .settings, .screen-body, .stage, .modal, .modal-box')]
       .filter((el) => el.getClientRects().length > 0 && el.scrollWidth > el.clientWidth + 1)
       .map((el) => `${el.id || el.className}:${el.scrollWidth}>${el.clientWidth}`);
     return { overflowX: de.scrollWidth > de.clientWidth + 1, overflowY: de.scrollHeight > window.innerHeight + 1, docHeight: de.scrollHeight, small, clipped, sideways };
@@ -1608,6 +1609,18 @@ try {
     expect(s, '탭 줄 뒤에 숨은 줄은 안 보인다고 판정', !(await inView(page, '#probeRow')));
     await page.$eval('#sheet', (el) => { el.scrollTop = 0; });
     expect(s, '맨 위 줄은 보인다고 판정', await inView(page, '#probeTop'));
+    // 창은 position: fixed라 넘쳐도 문서나 다른 영역으로 번지지 않습니다. 달력 창으로 두 가지 넘침을 만들어 봅니다.
+    await page.click('#sortBtn');
+    await page.click('#datePick');
+    await inject('width:315px;height:1px', '#calModal .modal-box'); // 흰 상자 밖으로 나가지만 화면 안
+    const pastBox = (await layout(page)).sideways;
+    expect(s, '창 안 내용이 흰 상자 밖으로 나가면 잡아냄', pastBox.some((x) => x.startsWith('modal-box')), pastBox.join());
+    await removeProbe();
+    await page.$eval('#calModal .modal-box', (el) => { el.style.width = '600px'; });
+    const pastScreen = (await layout(page)).sideways;
+    expect(s, '창이 화면보다 넓으면 잡아냄', pastScreen.some((x) => x.startsWith('calModal')), pastScreen.join());
+    await page.$eval('#calModal .modal-box', (el) => { el.style.width = ''; });
+    await page.click('#calClose');
     const before = runErrors.length;
     await page.evaluate(() => { setTimeout(() => { throw new Error('점검 도구 시험 오류'); }); });
     await wait(60);
@@ -1659,6 +1672,9 @@ try {
       await page.click('#calClose');
       await openFirst(page);
       await layoutExpect(page, `${tag} 상세`);
+      await page.click('#deleteBtn');
+      await layoutExpect(page, `${tag} 확인 창`);
+      await page.click('#modalNo');
       await page.click('#editBtn');
       await layoutExpect(page, `${tag} 양식`);
       await page.click('#formClose');
@@ -1669,6 +1685,9 @@ try {
       await page.click('#backupClose');
       await page.click('#catManage');
       await layoutExpect(page, `${tag} 분류`);
+      await page.click('#catAdd');
+      await layoutExpect(page, `${tag} 분류 창`);
+      await page.click('#catCancel');
       await page.click('#catScreenClose');
       expect(tag, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
       await context.close();
