@@ -671,7 +671,7 @@ try {
     expect(s, '검색어를 적으면 X가 보임', await visible(page, '#qClear'));
     await page.keyboard.press('Enter');
     await page.waitForSelector('#results:not([hidden]) button', { timeout: 3000 });
-    // 재발 방지(2026-11-05): 결과를 5개로 잘라 '가짜약국' 중 성남 지점이 안 보이던 문제
+    // 재발 방지(2026-11-05): 결과를 5개로 잘라 '○○약국' 중 성남 지점이 안 보이던 문제
     const count = await page.$$eval('#results button', (b) => b.length);
     expect(s, '결과를 자르지 않고 모두 보여 줌', count > 15, String(count));
     const first = await page.$eval('#results button', (el) => el.textContent);
@@ -1737,7 +1737,7 @@ try {
       const base = { lat: 37.2, lng: 127.2, createdAt: '2026-01-01T00:00:00.000Z' };
       localStorage.setItem('imjang-map:listings', JSON.stringify({ schemaVersion: 1, data: { items: [
         { ...base, id: 'a', name: '가짜 약국 가', areaExclusive: '33.33', deposit: '5000', address: '서울 중구 가짜대로 1', region: '서울 중구' },
-        { ...base, id: 'b', name: '가짜 약국 나', address: '서울 중구 가짜대로 2', region: '을지로쪽' },
+        { ...base, id: 'b', name: '가짜 약국 나', address: '서울 중구 가짜대로 2', region: '가짜동네쪽' },
       ] } }));
     });
     await page.goto(BASE, { waitUntil: 'load' });
@@ -1839,7 +1839,7 @@ try {
     expect(s, '주소를 바꾸면 자동으로 채운 지역이 따라감', !['', '서울 중구'].includes((await one('a')).region), (await one('a')).region);
     await edit('가짜 약국 나');
     await repick();
-    expect(s, '주소를 바꿔도 직접 적은 지역은 남음', (await one('b')).region === '을지로쪽', (await one('b')).region);
+    expect(s, '주소를 바꿔도 직접 적은 지역은 남음', (await one('b')).region === '가짜동네쪽', (await one('b')).region);
 
     // F010: 두 번 빠르게 누르면 두 번째 탭은 방금 열린 화면에 눌리지 않음
     await page.evaluate(() => {

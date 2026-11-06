@@ -15,7 +15,7 @@ test('찾는 말이 맞는 곳만 지도에 가까운 순으로 보여 준다(�
 });
 
 test('맞는 곳이 하나도 없으면 비슷한 결과라도 보여 준다', () => {
-  const r = rankPlaces([NEAR_OTHER], '오타약국', CENTER);
+  const r = rankPlaces([NEAR_OTHER], '가짜오타약국', CENTER);
   assert.deepEqual(r.map((x) => x.id), ['4']);
 });
 

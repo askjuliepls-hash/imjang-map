@@ -14,7 +14,7 @@ export function formatDistance(m) {
   return `${(m / 1000).toFixed(m < 10000 ? 1 : 0)}km`;
 }
 
-// 찾는 말의 낱말이 이름이나 주소에 모두 들어 있으면 맞는 결과로 칩니다. 예: '성남 가짜약국'
+// 찾는 말의 낱말이 이름이나 주소에 모두 들어 있으면 맞는 결과로 칩니다. 예: '성남 ○○약국'
 function matches(place, words) {
   const hay = `${place.place_name} ${place.address_name} ${place.road_address_name}`.replace(/\s+/g, ' ');
   return words.every((w) => hay.includes(w));

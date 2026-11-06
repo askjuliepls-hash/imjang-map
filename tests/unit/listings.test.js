@@ -245,7 +245,7 @@ test('읽지 못한 값은 확인 뒤 교체할 때만 덮는다', () => {
 test('regionIsFromAddress: 첫 낱말 표기가 달라도 자동 지역으로 보고, 직접 적은 지역은 아니라고 봄', () => {
   assert.equal(regionIsFromAddress('서울 중구', '서울특별시 중구 가짜대로 1'), true);
   assert.equal(regionIsFromAddress('경기 성남시 중원구', '경기도 성남시 중원구 가짜대로 10'), true);
-  assert.equal(regionIsFromAddress('을지로쪽', '서울 중구 가짜대로 1'), false);
+  assert.equal(regionIsFromAddress('가짜동네쪽', '서울 중구 가짜대로 1'), false);
   assert.equal(regionIsFromAddress('서울 중구', ''), false);
   assert.equal(regionIsFromAddress('', '서울 중구 가짜대로 1'), false);
 });
