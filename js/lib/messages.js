@@ -1,20 +1,22 @@
 // 오류를 '무엇이 잘못됐고 어떻게 고치는지' 한 문장으로 바꿉니다.
+// 친구가 할 수 있는 일만 말합니다. 개발자용 설정, 영어 오류 이름은 보여 주지 않습니다.
 
-export function kakaoLoadMessage(reason, origin = '') {
-  const domain = origin || '이 앱 주소';
+const ASK_HELP = '계속되면 이 화면을 캡처해 앱을 알려 준 사람에게 보내 주세요.';
+const REOPEN = '앱을 완전히 닫았다 다시 열어 주세요.';
+
+export function kakaoLoadMessage(reason) {
   switch (reason) {
     case 'no-key':
-      return '카카오 JavaScript 키가 없어요. Claude에게 알려 주세요.';
+      return '지도를 쓸 준비가 안 됐어요. 이 화면을 캡처해 앱을 알려 준 사람에게 보내 주세요.';
     case 'load-failed':
-      return `카카오 지도를 불러오지 못했어요. 카카오 콘솔에서 JavaScript SDK 도메인 등록과 카카오맵 사용 설정을 확인해 주세요. 등록할 주소: ${domain}`;
     case 'sdk-missing':
-      return '카카오 지도 파일은 받았지만 내용이 비어 있어요. JavaScript 키가 맞는지 확인해 주세요.';
+      return "카카오 지도에 연결하지 못했어요. 인터넷 연결을 확인하고 '다시 불러오기'를 눌러 주세요.";
     case 'timeout':
       return "카카오 지도가 15초 안에 응답하지 않았어요. 인터넷 연결을 확인하고 '다시 불러오기'를 눌러 주세요.";
     case 'tiles-timeout':
       return "지도 칸은 만들었지만 지도 그림이 15초 안에 안 떴어요. 인터넷 연결을 확인하고 '다시 불러오기'를 눌러 주세요.";
     default:
-      return "카카오 지도를 불러오지 못했어요. '다시 불러오기'를 눌러 보고, 계속되면 Claude에게 알려 주세요.";
+      return `카카오 지도를 불러오지 못했어요. '다시 불러오기'를 눌러 주세요. ${ASK_HELP}`;
   }
 }
 
@@ -53,32 +55,35 @@ export function kakaoInappMessage(ua = '') {
   return "카카오톡 안에서 열렸어요. 여기 저장한 내용은 다른 곳에서 안 보여요. 위쪽 가운데 주소를 눌러 '다른 브라우저로 열기'로 Safari에서 열어 주세요.";
 }
 
-// 매물을 저장하지 못했을 때. 입력한 내용은 양식에 그대로 남아 있습니다.
-export function saveErrorMessage(reason, detail = '') {
+// 저장하지 못했을 때. 양식처럼 입력이 남아 있는 곳에서만 form을 켜서 그렇다고 알립니다.
+export function saveErrorMessage(reason, { form = false } = {}) {
+  const kept = form ? ' 입력한 내용은 그대로 있어요.' : '';
   switch (reason) {
     case 'quota':
-      return '저장 공간이 가득 차서 저장하지 못했어요. 입력한 내용은 그대로 있어요. 캡처를 Claude에게 보내 주세요.';
+      return `저장 공간이 가득 차서 저장하지 못했어요.${kept} 안 쓰는 매물을 지운 뒤 다시 해 주세요. ${ASK_HELP}`;
     case 'unavailable':
-      return '이 기기에 저장이 막혀 있어요. 입력한 내용은 그대로 있어요. 캡처를 Claude에게 보내 주세요.';
+      return `이 기기에 저장이 막혀 있어요.${kept} ${REOPEN} ${ASK_HELP}`;
     case 'blocked':
-      return '저장된 매물을 읽지 못해서, 덮어쓰지 않으려고 저장을 멈췄어요. 캡처를 Claude에게 보내 주세요.';
+      return `저장된 매물을 읽지 못해서, 덮어쓰지 않으려고 저장을 멈췄어요. ${REOPEN} ${ASK_HELP}`;
     case 'verify-failed':
-      return '저장한 값을 다시 읽어 보니 달라요. 입력한 내용은 그대로 있어요. 캡처를 Claude에게 보내 주세요.';
+      return `저장한 값을 다시 읽어 보니 달라요.${kept} ${REOPEN} ${ASK_HELP}`;
     default:
-      return `저장하지 못했어요. (${detail || reason}) 입력한 내용은 그대로 있어요.`;
+      return `저장하지 못했어요.${kept} 잠시 뒤 다시 해 주세요. ${ASK_HELP}`;
   }
 }
 
-export function loadErrorMessage(reason, detail = '') {
-  return `저장된 매물을 읽지 못했어요. (${reason}${detail ? ` ${detail}` : ''}) 데이터를 덮어쓰지 않도록 추가를 막아 뒀어요. '다시 불러오기'를 눌러 보고, 그래도 이러면 캡처를 Claude에게 보내 주세요. 백업 파일이 있으면 설정의 백업하기에서 되살릴 수 있어요.`;
+export function loadErrorMessage(reason) {
+  // 저장이 막힌 기기에서는 백업 파일로도 되살릴 수 없어서 말하지 않습니다.
+  const restore = reason === 'unavailable' ? '' : ' 백업 파일이 있으면 설정의 백업하기에서 되살릴 수 있어요.';
+  return `저장된 매물을 읽지 못했어요. 데이터를 덮어쓰지 않도록 추가를 막아 뒀어요. '다시 불러오기'를 눌러 주세요. ${ASK_HELP}${restore}`;
 }
 
 const STILL_SAFE = ' 지금 있는 내용은 그대로예요.';
 
-export function importErrorMessage(reason, detail = '') {
+export function importErrorMessage(reason) {
   switch (reason) {
     case 'read-failed':
-      return `파일을 읽지 못했어요. (${detail || '알 수 없는 오류'})${STILL_SAFE}`;
+      return `파일을 읽지 못했어요. 파일을 다시 골라 주세요.${STILL_SAFE}`;
     case 'empty':
       return `빈 파일이에요.${STILL_SAFE}`;
     case 'too-big':
@@ -95,10 +100,14 @@ export function importErrorMessage(reason, detail = '') {
     case 'bad-shape':
       return `파일 내용이 맞지 않아요. 옮기는 중에 잘렸을 수 있어요.${STILL_SAFE}`;
     default:
-      return `가져오지 못했어요. (${reason})${STILL_SAFE}`;
+      return `가져오지 못했어요. 내보낸 백업 파일을 골랐는지 봐 주세요.${STILL_SAFE}`;
   }
 }
 
-export function exportFailMessage(name) {
-  return `공유 창을 열지 못했어요. (${name}) '파일로 바로 저장'을 눌러 보세요. 화면이 막히면 앱을 닫았다 다시 열어 주세요.`;
+export function exportFailMessage() {
+  return "공유 창을 열지 못했어요. '파일로 바로 저장'을 눌러 보세요. 화면이 막히면 앱을 닫았다 다시 열어 주세요.";
+}
+
+export function exportBlockedMessage() {
+  return `저장된 매물을 읽지 못해서 내보낼 수 없어요. ${REOPEN} ${ASK_HELP}`;
 }

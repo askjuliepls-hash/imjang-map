@@ -818,7 +818,7 @@ try {
     await page.goto(BASE, { waitUntil: 'load' });
     await appReady(page);
     await page.waitForFunction(() => !document.getElementById('mapMsg').hidden, { timeout: 4000 });
-    expect(s, '지도 자리에 이유와 등록할 도메인', (await text(page, '#mapMsg')).includes(ORIGIN));
+    expect(s, '지도 자리에 친구가 할 일이 보이고 콘솔 안내는 없음', (await text(page, '#mapMsg')).includes('다시 불러오기') && !(await text(page, '#mapMsg')).includes('콘솔'));
     expect(s, '검색 입력 잠김', await page.$eval('#q', (el) => el.disabled));
     await fillAndSave(page, { name: '지도 없이 적은 약국' });
     expect(s, '지도가 없어도 저장됨', (await stored(page)).length === 1);
@@ -1871,6 +1871,111 @@ try {
     await page.click('#calClose');
     expect(s, '스크립트 오류 없음', errors.length === 0, errors.join(' | '));
     await context.close();
+  });
+
+  // 재발 방지(2026-11-06): 카드를 열어 둔 채 탭 이동, 닫히지 않는 실패 안내, 늦게 온 검색 답
+  await scenario('S 카드·실패 안내·늦은 답', async (s) => {
+    const seed = () => {
+      try {
+        localStorage.setItem('imjang-map:listings', JSON.stringify({ schemaVersion: 1, data: { items: [{ id: 'a', name: '가짜 약국', lat: 37.5668, lng: 126.9786, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }] } }));
+        localStorage.setItem('imjang-map:categories', JSON.stringify({ schemaVersion: 1, data: { items: [{ id: 'c', name: '가짜 분류', color: '#F96949' }] } }));
+      } catch { /* about:blank */ }
+    };
+    const denied = () => { navigator.geolocation.getCurrentPosition = (_ok, bad) => bad({ code: 1 }); };
+    const start = async (mode = {}) => {
+      const o = await openPage(browser, { kakao: 'mock', config: 'mock', ...mode, init: [asApp, seed, denied] }, s);
+      await o.page.goto(BASE, { waitUntil: 'load' });
+      await appReady(o.page);
+      return o;
+    };
+    {
+      const { context, page } = await start();
+      await page.waitForSelector('.mock-marker', { timeout: 3000 });
+      const search = async (q) => {
+        await page.$eval('#q', (el) => { el.value = ''; });
+        await page.type('#q', q);
+        await page.keyboard.press('Enter');
+      };
+      await page.evaluate(() => document.querySelector('.mock-marker').click());
+      await goTab(page, 'list');
+      expect(s, '핀 카드를 열어 둔 채 목록으로 가도 매물 추가가 보임', await inView(page, '#addBtn'));
+      await goTab(page, 'map');
+      expect(s, '탭을 옮기면 핀 카드가 닫힘', !(await visible(page, '#pinCard')));
+      await search('테스트');
+      await page.waitForSelector('#results:not([hidden]) button', { timeout: 3000 });
+      await page.click('#results button');
+      await goTab(page, 'list');
+      expect(s, '검색 카드를 열어 둔 채 목록으로 가도 매물 추가가 보임', await inView(page, '#addBtn'));
+      await goTab(page, 'map');
+      expect(s, '돌아오면 검색 카드는 그대로이고 매물 추가는 숨음', await visible(page, '#placeCard') && !(await visible(page, '#addBtn')));
+      await page.click('#placeClose');
+      await page.evaluate(() => { window.__mockSearchDelay = { 없는장소: 400, 지울장소: 300 }; });
+      await search('없는장소');
+      await search('테스트');
+      await wait(550);
+      expect(s, '늦게 온 이전 검색 답이 새 결과를 덮지 않음', (await text(page, '#results')).includes('테스트 장소') && await visible(page, '#results') && !(await visible(page, '#toast')));
+      await search('지울장소');
+      await page.click('#qClear');
+      await wait(400);
+      expect(s, 'X로 지운 뒤 늦은 답이 목록을 다시 열지 않음', !(await visible(page, '#results')));
+      await page.click('#addBtn');
+      const locSearch = async (q) => {
+        await page.$eval('#locQ', (el) => { el.value = ''; });
+        await page.type('#locQ', q);
+        await page.click('#locSearchBtn');
+      };
+      await locSearch('없는장소');
+      await locSearch('테스트');
+      await wait(550);
+      expect(s, '양식 주소 검색도 늦은 답이 새 결과를 덮지 않음', await visible(page, '#locResults') && (await text(page, '#locState')) === '');
+      await locSearch('지울장소');
+      await page.click('#formClose');
+      await page.click('#modalYes');
+      await page.click('#addBtn');
+      await wait(400);
+      expect(s, '양식을 새로 열면 늦은 답이 목록을 열지 않음', !(await visible(page, '#locResults')));
+      await context.close();
+    }
+    {
+      const { context, page } = await start();
+      const fail = async () => { await page.click('#locate'); await wait(60); };
+      await fail();
+      await page.click('#toast');
+      expect(s, '실패 안내를 누르면 닫힘', !(await visible(page, '#toast')));
+      await fail();
+      await page.$eval('#q', (el) => { el.value = ''; });
+      await page.type('#q', '테스트');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('#results:not([hidden]) button', { timeout: 3000 });
+      expect(s, '다음 검색을 하면 실패 안내가 닫힘', !(await visible(page, '#toast')));
+      await page.click('#qClear');
+      await fail();
+      await page.click('#addBtn');
+      expect(s, '양식을 열면 실패 안내가 닫혀 매물명 칸이 안 가려짐', !(await visible(page, '#toast')) && await inView(page, '#f-name'));
+      await page.click('#formClose');
+      // 상세가 열린 뒤에 도착한 실패 안내도 화면을 가리지 않아야 합니다.
+      await page.evaluate(() => { navigator.geolocation.getCurrentPosition = (_ok, bad) => setTimeout(() => bad({ code: 1 }), 200); });
+      await page.click('#locate');
+      await openFirst(page);
+      await wait(300);
+      expect(s, '늦게 온 실패 안내가 수정하기를 가리지 않음', await page.$eval('#toast', (el) => !el.hidden) && await inView(page, '#editBtn'));
+      await page.click('#detailClose');
+      await goTab(page, 'settings');
+      await page.click('#catManage');
+      await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); }; });
+      await page.click('#catList .danger');
+      await page.click('#modalYes');
+      expect(s, '분류 삭제 실패 안내가 분류 화면 안에 보임', await inViewSoon(page, '#catMsg'));
+      await context.close();
+    }
+    {
+      const { context, page } = await start({ kakao: '503' });
+      await page.waitForFunction(() => !document.getElementById('mapMsg').hidden, { timeout: 4000 });
+      await page.click('#locate');
+      await wait(60);
+      expect(s, '실패 안내가 다시 불러오기를 가리지 않고 둘 다 보임', await inView(page, '#topReload') && await inView(page, '#toast'));
+      await context.close();
+    }
   });
 
   expect('전체', '모든 화면에서 스크립트 오류 없음', runErrors.length === 0, runErrors.join(' | '));

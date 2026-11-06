@@ -123,7 +123,7 @@
         { place_name: '테스트 장소 A', road_address_name: '테스트시 테스트구 가짜로 1', address_name: '', x: '126.9800', y: '37.5672' },
         { place_name: '테스트 장소 B', road_address_name: '', address_name: '테스트시 테스트구 가짜동 2', x: '126.9760', y: '37.5650' },
       ], Status.OK, { totalCount: 2 });
-    }, 80);
+    }, (window.__mockSearchDelay || {})[q] || 80); // 검색어별로 답을 늦춥니다. 늦은 답 점검에 씁니다.
   };
 
   window.kakao = {

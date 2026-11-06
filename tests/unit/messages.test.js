@@ -1,13 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage, saveErrorMessage, loadErrorMessage, importErrorMessage, exportFailMessage,
+  kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage, saveErrorMessage, loadErrorMessage, importErrorMessage, exportFailMessage, exportBlockedMessage,
 } from '../../js/lib/messages.js';
 
-test('카카오 로드 실패 안내에 실제 앱 도메인이 들어간다', () => {
-  const msg = kakaoLoadMessage('load-failed', 'https://askjuliepls-hash.github.io');
-  assert.match(msg, /https:\/\/askjuliepls-hash\.github\.io/);
-  assert.match(msg, /카카오맵 사용 설정/);
+test('지도 연결 실패 안내는 친구가 할 수 있는 일을 말한다', () => {
+  for (const r of ['load-failed', 'sdk-missing']) {
+    assert.match(kakaoLoadMessage(r), /인터넷 연결/);
+    assert.match(kakaoLoadMessage(r), /다시 불러오기/);
+  }
+});
+
+test('실패 안내에 Claude, 카카오 콘솔, 영어 오류 이름이 없다', () => {
+  const all = [
+    ...['no-key', 'load-failed', 'sdk-missing', 'timeout', 'tiles-timeout', 'other'].map((r) => kakaoLoadMessage(r)),
+    ...['quota', 'unavailable', 'blocked', 'verify-failed', 'WeirdError'].flatMap((r) => [saveErrorMessage(r), saveErrorMessage(r, { form: true })]),
+    ...['corrupt', 'unavailable'].map((r) => loadErrorMessage(r)),
+    ...['read-failed', 'empty', 'too-big', 'encoding', 'bad-json', 'other-app', 'newer', 'test-file', 'bad-shape', 'WeirdError'].map((r) => importErrorMessage(r)),
+    exportFailMessage(),
+    exportBlockedMessage(),
+  ];
+  for (const msg of all) assert.doesNotMatch(msg, /Claude|콘솔|[A-Za-z]{3,}/, msg);
 });
 
 test('키가 없을 때와 시간 초과는 서로 다른 안내', () => {
@@ -40,12 +53,19 @@ test('카카오톡 안내는 아이폰과 안드로이드가 다르다', () => {
 
 test('저장 실패 안내는 이유마다 다르고 입력이 남아 있다고 알린다', () => {
   assert.notEqual(saveErrorMessage('quota'), saveErrorMessage('unavailable'));
-  assert.match(saveErrorMessage('quota'), /그대로/);
-  assert.match(saveErrorMessage('unknown', 'WeirdError'), /WeirdError/);
+  assert.match(saveErrorMessage('quota', { form: true }), /그대로/);
+});
+
+test('양식이 아닌 곳의 저장 실패 안내는 입력한 내용을 말하지 않는다', () => {
+  for (const r of ['quota', 'unavailable', 'blocked', 'verify-failed', 'other']) {
+    assert.doesNotMatch(saveErrorMessage(r), /입력한 내용/);
+  }
 });
 
 test('읽기 실패 안내는 덮어쓰지 않는다고 알린다', () => {
   assert.match(loadErrorMessage('corrupt'), /덮어쓰지/);
+  assert.match(loadErrorMessage('corrupt'), /되살릴/);
+  assert.doesNotMatch(loadErrorMessage('unavailable'), /되살릴/);
 });
 
 test('가져오기 실패는 지금 내용이 그대로라고 알린다', () => {
@@ -54,7 +74,3 @@ test('가져오기 실패는 지금 내용이 그대로라고 알린다', () => 
   }
 });
 
-test('모르는 오류 이름이 그대로 보인다(백업)', () => {
-  assert.match(exportFailMessage('WeirdError'), /WeirdError/);
-  assert.match(importErrorMessage('read-failed', 'WeirdError'), /WeirdError/);
-});

@@ -18,7 +18,7 @@ import {
 } from './lib/listings.js';
 import {
   kakaoLoadMessage, geoErrorMessage, standaloneHelp, kakaoInappMessage, saveErrorMessage, loadErrorMessage,
-  importErrorMessage, exportFailMessage,
+  importErrorMessage, exportFailMessage, exportBlockedMessage,
 } from './lib/messages.js';
 
 const VERSION = document.querySelector('meta[name="app-version"]')?.content || 'dev';
@@ -46,9 +46,17 @@ function toast(text, tone = 'ok') {
   el.dataset.tone = tone;
   el.textContent = text;
   el.hidden = false;
+  // 다시 불러오기 칸이 떠 있으면 그 버튼을 가리지 않게 칸 아래에 둡니다.
+  const box = $('reloadBox').getBoundingClientRect();
+  el.style.top = box.height > 0 ? `${box.bottom + 8}px` : '';
   clearTimeout(toastTimer);
-  // 실패 안내는 읽을 시간이 필요해서 저절로 닫지 않습니다.
+  // 실패 안내는 읽을 시간이 필요해서 저절로 닫지 않습니다. 누르거나 다음 동작을 하면 닫힙니다.
   if (tone !== 'fail') toastTimer = setTimeout(() => { el.hidden = true; }, 3500);
+}
+
+function hideToast() {
+  clearTimeout(toastTimer);
+  $('toast').hidden = true;
 }
 
 // ---------- 지도 ----------
@@ -138,7 +146,8 @@ async function initMap() {
     kakao = null;
     map = null;
     // 지도가 없어도 매물 저장과 목록은 계속 씁니다.
-    mapUnavailable(kakaoLoadMessage(err.message, location.origin));
+    console.log('kakao load failed', err.message, location.origin); // 등록 도메인 확인은 개발자의 일입니다.
+    mapUnavailable(kakaoLoadMessage(err.message));
   }
 }
 
@@ -226,13 +235,19 @@ function placeHint() {
   return li;
 }
 
+// 늦게 온 검색 답은 버립니다. 새로 검색하거나 지우면 번호가 올라갑니다.
+let searchTicket = 0;
+
 function onSearch(ev) {
   ev.preventDefault();
   const q = $('q').value.trim();
   if (!q || !kakao) return;
+  hideToast();
   if (cardPlace) hidePlaceCard();
   $('q').blur(); // 아이폰 키보드를 내려 결과가 보이게
+  const ticket = ++searchTicket;
   searchPlaces(q, (r) => {
+    if (ticket !== searchTicket) return;
     const ul = $('results');
     ul.replaceChildren();
     if (!r.ok) {
@@ -277,13 +292,18 @@ function showPlaceCard(p) {
   $('placeName').textContent = p.place_name;
   $('placeAddress').textContent = p.road_address_name || p.address_name || '';
   $('placeCard').hidden = false;
-  $('addBtn').hidden = true;
+  syncAddBtn();
 }
 
 function hidePlaceCard() {
   cardPlace = null;
   $('placeCard').hidden = true;
-  if (!picking) $('addBtn').hidden = false;
+  syncAddBtn();
+}
+
+// 매물 추가 버튼은 지도에서 카드가 그 자리를 쓸 때와 위치를 고를 때만 숨깁니다. 목록 탭에서는 늘 보입니다.
+function syncAddBtn() {
+  $('addBtn').hidden = picking || (tab === 'map' && (cardPlace !== null || pinId !== null));
 }
 
 function addFromPlace() {
@@ -300,6 +320,7 @@ function addFromPlace() {
 
 // 검색어를 지웁니다. 찾아 둔 결과와 표시도 함께 걷습니다.
 function onClearSearch() {
+  searchTicket += 1;
   $('q').value = '';
   $('qClear').hidden = true;
   $('results').hidden = true;
@@ -312,8 +333,10 @@ function onClearSearch() {
 let pinId = null;
 
 function showPinCard(id) {
+  if (picking) return;
   const item = items.find((x) => x.id === id);
   if (!item) return;
+  searchTicket += 1;
   if (cardPlace) hidePlaceCard();
   $('backupNudge').hidden = true;
   pinId = id;
@@ -323,13 +346,13 @@ function showPinCard(id) {
   $('pinMeta').hidden = !pinMeta;
   fillFacts($('pinFacts'), item);
   $('pinCard').hidden = false;
-  $('addBtn').hidden = true;
+  syncAddBtn();
 }
 
 function hidePinCard() {
   pinId = null;
   $('pinCard').hidden = true;
-  if (!picking) $('addBtn').hidden = false;
+  syncAddBtn();
 }
 
 function makeSearchDot() {
@@ -714,6 +737,7 @@ function renderLocationTools() {
 
 // 주소를 고르기 전에는 검색 칸을, 고른 뒤에는 주소와 지우기(X)를 보여 줍니다.
 function renderDraftLocation() {
+  locSearchTicket += 1; // 위치가 정해지거나 양식이 새로 열리면 찾던 답은 필요 없습니다.
   const on = !!draftLocation;
   $('locPick').hidden = on;
   $('locChosen').hidden = !on;
@@ -774,6 +798,7 @@ function fillAddressFromCoord(lat, lng, keepClean = false) {
 
 // 현재 위치를 묻는 동안 위치를 다르게 정하거나 양식을 새로 열면 늦게 온 답은 버립니다.
 let locHereTicket = 0;
+let locSearchTicket = 0;
 
 function setDraftLocation(lat, lng, label = '') {
   locHereTicket += 1;
@@ -783,6 +808,8 @@ function setDraftLocation(lat, lng, label = '') {
 }
 
 function openForm(item = null) {
+  hideToast();
+  searchTicket += 1;
   locHereTicket += 1;
   editingId = item?.id ?? null;
   $('formTitle').textContent = item ? '매물 수정' : '매물 추가';
@@ -879,7 +906,7 @@ function onSaveListing() {
   const saved = persistItems(next);
   if (!saved.ok) {
     // 양식을 닫지 않아서 입력한 내용은 그대로 남습니다.
-    showFormMsg(saveErrorMessage(saved.reason, saved.detail));
+    showFormMsg(saveErrorMessage(saved.reason, { form: true }));
     return;
   }
   const located = r.data.lat !== null;
@@ -895,7 +922,9 @@ function onLocSearch() {
   locHereTicket += 1;
   $('locState').textContent = '';
   document.activeElement?.blur?.();
+  const ticket = ++locSearchTicket;
   searchPlaces(q, (r) => {
+    if (ticket !== locSearchTicket) return;
     const ul = $('locResults');
     ul.replaceChildren();
     if (!r.ok || r.items.length === 0) {
@@ -952,7 +981,6 @@ function onLocMap() {
   $('pickText').textContent = '지도에서 약국 위치를 눌러 주세요.';
   $('formScreen').hidden = true;
   $('pickBar').hidden = false;
-  $('addBtn').hidden = true;
   map.relayout();
   drawPick();
 }
@@ -977,7 +1005,6 @@ function endPick(ok) {
   pickOverlay?.setMap(null);
   $('pickBar').hidden = true;
   delete $('app').dataset.picking;
-  $('addBtn').hidden = false;
   $('formScreen').hidden = false;
   setTab(pickReturnTab);
   if (ok && pickPos) {
@@ -1014,6 +1041,7 @@ let detailId = null;
 function openDetail(id) {
   const item = items.find((x) => x.id === id);
   if (!item) return;
+  hideToast();
   detailId = id;
   $('detailTitle').textContent = item.name;
   const cat = categoryOf(item, categories);
@@ -1063,7 +1091,7 @@ function onDeleteConfirmed() {
   const r = persistItems(removeListing(items, detailId));
   if (!r.ok) {
     const el = $('detailMsg');
-    el.textContent = saveErrorMessage(r.reason, r.detail);
+    el.textContent = saveErrorMessage(r.reason);
     el.hidden = false;
     return;
   }
@@ -1178,8 +1206,11 @@ function deleteCategory(id) {
   // 매물에서 먼저 빼고 분류를 지웁니다. 중간에 실패해도 매물은 그대로 있어요.
   const r1 = persistItems(clearCategoryFrom(items, id));
   const r2 = r1.ok ? persistCategories(removeCategory(categories, id)) : r1;
+  const msg = $('catMsg');
+  msg.hidden = r2.ok;
   if (!r2.ok) {
-    toast(saveErrorMessage(r2.reason, r2.detail), 'fail');
+    msg.textContent = saveErrorMessage(r2.reason);
+    msg.scrollIntoView({ block: 'nearest' });
     return;
   }
   if (mapFilter === id) mapFilter = null;
@@ -1231,7 +1262,7 @@ function onSaveCategory() {
   const id = catEditing?.id ?? `c${Date.now().toString(36)}-${random}`;
   const r = persistCategories(upsertCategory(categories, { id: catEditing?.id, name: checked.name, color: catColor }, id));
   if (!r.ok) {
-    $('catError').textContent = saveErrorMessage(r.reason, r.detail);
+    $('catError').textContent = saveErrorMessage(r.reason, { form: true });
     $('catError').hidden = false;
     return;
   }
@@ -1346,7 +1377,7 @@ function downloadFile(text, fileName) {
 function onExport(forceDownload = false) {
   // 읽지 못한 상태나 빈 상태로 내보내면 빈 파일을 진짜 백업으로 착각할 수 있어요.
   if (itemsUnreadable) {
-    backupSay('저장된 매물을 읽지 못해서 내보낼 수 없어요. 캡처를 Claude에게 보내 주세요.', 'fail');
+    backupSay(exportBlockedMessage(), 'fail');
     return;
   }
   if (items.length === 0 && categories.length === 0) {
@@ -1381,11 +1412,11 @@ function onExport(forceDownload = false) {
       } else if (name === 'InvalidStateError') {
         backupSay('공유 창이 안 보이면 앱을 닫았다 다시 열어 주세요.');
       } else {
-        backupSay(exportFailMessage(name), 'fail');
+        backupSay(exportFailMessage(), 'fail');
       }
     });
   } catch (e) {
-    backupSay(exportFailMessage(e?.name || String(e)), 'fail');
+    backupSay(exportFailMessage(), 'fail');
   }
 }
 
@@ -1415,7 +1446,7 @@ function applyImport(r) {
     const { lastBackupAt, dirtySince, backedUp } = backupMeta;
     const snap = store.write('before-import', { listings: items, categories, at: new Date().toISOString(), backup: { lastBackupAt, dirtySince, backedUp } });
     if (!snap.ok) {
-      backupSay(saveErrorMessage(snap.reason, snap.detail), 'fail', 'importMsg');
+      backupSay(saveErrorMessage(snap.reason), 'fail', 'importMsg');
       return;
     }
   }
@@ -1433,7 +1464,7 @@ function applyImport(r) {
       categoryStore.load();
     }
     renderBackupInfo();
-    backupSay(saveErrorMessage(done.reason, done.detail), 'fail', 'importMsg');
+    backupSay(saveErrorMessage(done.reason), 'fail', 'importMsg');
     return;
   }
   if (itemsUnreadable) {
@@ -1457,7 +1488,7 @@ async function onImportPicked(ev) {
     if (!file) return;
     const r = await readBackupFile(file);
     if (!r.ok) {
-      backupSay(importErrorMessage(r.reason, r.detail), 'fail', 'importMsg');
+      backupSay(importErrorMessage(r.reason), 'fail', 'importMsg');
       return;
     }
     if (items.length === 0 && categories.length === 0 && !itemsUnreadable) {
@@ -1473,7 +1504,7 @@ async function onImportPicked(ev) {
     ];
     askConfirm(lines.join('\n'), '바꾸기', '취소', () => applyImport(r));
   } catch (e) {
-    backupSay(importErrorMessage('read-failed', e?.name || String(e)), 'fail', 'importMsg');
+    backupSay(importErrorMessage('read-failed'), 'fail', 'importMsg');
   } finally {
     input.value = ''; // 같은 파일을 다시 고를 수 있게 비웁니다.
   }
@@ -1493,7 +1524,7 @@ function onUndoImport() {
   askConfirm(`가져오기 전 내용(매물 ${snap.data.listings.length}개)으로 되돌릴까요?${lostWarning()}`, '되돌리기', '취소', () => {
     const done = replaceAll(snap.data.listings, snap.data.categories || []);
     if (!done.ok) {
-      backupSay(saveErrorMessage(done.reason, done.detail), 'fail', 'importMsg');
+      backupSay(saveErrorMessage(done.reason), 'fail', 'importMsg');
       return;
     }
     store.write('before-import', null); // 되돌리기는 한 번만 됩니다.
@@ -1547,6 +1578,8 @@ let tab = 'map';
 
 function setTab(next) {
   tab = next;
+  // 핀 카드는 저장된 매물을 옮겨 적은 것이라, 다른 탭에서 고치면 틀려집니다. 지도를 떠나면 닫습니다.
+  if (next !== 'map' && pinId) hidePinCard();
   $('app').dataset.tab = next;
   $('barTitle').textContent = { map: '약국 임장노트', list: '내 매물', settings: '설정' }[next];
   for (const b of $('tabbar').querySelectorAll('button')) {
@@ -1556,6 +1589,7 @@ function setTab(next) {
   $('backupNudge').hidden = true;
   // 숨겨 둔 지도는 크기를 모르므로 돌아올 때 다시 맞춥니다.
   if (next === 'map') map?.relayout();
+  syncAddBtn();
 }
 
 // ---------- 새 버전 자동 적용 ----------
@@ -1594,7 +1628,7 @@ function loadItems() {
   // 읽지 못하면 덮어쓰지 않도록 추가·저장을 막고 알립니다.
   itemsUnreadable = true;
   const el = $('loadMsg');
-  el.textContent = loadErrorMessage(r.reason, r.detail);
+  el.textContent = loadErrorMessage(r.reason);
   el.hidden = false;
   $('addBtn').disabled = true;
   window.__showReload?.(el.textContent); // 처음 화면이 지도라 목록의 안내만으로는 안 보입니다.
@@ -1605,6 +1639,7 @@ $('searchForm').addEventListener('submit', onSearch);
 $('q').addEventListener('input', () => { $('qClear').hidden = !$('q').value; });
 $('qClear').addEventListener('click', onClearSearch);
 $('locate').addEventListener('click', onLocate);
+$('toast').addEventListener('click', hideToast);
 for (const b of $('tabbar').querySelectorAll('button')) {
   b.addEventListener('click', () => setTab(b.dataset.tab));
 }
@@ -1726,7 +1761,10 @@ $('importFile').addEventListener('change', onImportPicked);
 $('undoImport').addEventListener('click', onUndoImport);
 $('nudgeLater').addEventListener('click', () => { $('backupNudge').hidden = true; });
 $('nudgeGo').addEventListener('click', openBackupScreen);
-$('catManage').addEventListener('click', () => { $('catScreen').hidden = false; });
+$('catManage').addEventListener('click', () => {
+  $('catMsg').hidden = true;
+  $('catScreen').hidden = false;
+});
 $('catScreenClose').addEventListener('click', () => { $('catScreen').hidden = true; });
 $('catAdd').addEventListener('click', () => openCatModal(null));
 $('catCancel').addEventListener('click', () => { $('catModal').hidden = true; });
